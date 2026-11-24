@@ -229,11 +229,16 @@ class GeminiDecision(BaseModel):
 # ---------------------------------------------------------------------------
 # Gemini classifier
 # ---------------------------------------------------------------------------
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+def get_gemini_client() -> genai.Client:
+    api_key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not configured in your .env file or environment.")
+    return genai.Client(api_key=api_key)
 
 
 async def classify_message(user_text: str) -> GeminiDecision:
     """Send user message to Gemini and get a structured action decision."""
+    client = get_gemini_client()
     t = now_pkt()
     system_context = (
         f"Current date: {t.strftime('%Y-%m-%d')} ({t.strftime('%A')}). "
@@ -250,7 +255,7 @@ async def classify_message(user_text: str) -> GeminiDecision:
         "Always include a short, friendly 'reply' confirming what you did."
     )
 
-    response = gemini_client.models.generate_content(
+    response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=user_text,
         config=genai_types.GenerateContentConfig(
@@ -265,6 +270,7 @@ async def classify_message(user_text: str) -> GeminiDecision:
 
 async def classify_voice(audio_bytes: bytes, mime_type: str) -> GeminiDecision:
     """Send inline voice note to Gemini and get a structured action decision."""
+    client = get_gemini_client()
     t = now_pkt()
     system_context = (
         f"Current date: {t.strftime('%Y-%m-%d')} ({t.strftime('%A')}). "
@@ -284,7 +290,7 @@ async def classify_voice(audio_bytes: bytes, mime_type: str) -> GeminiDecision:
 
     audio_part = genai_types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
 
-    response = gemini_client.models.generate_content(
+    response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=[audio_part, "Classify this voice message into a printer action."],
         config=genai_types.GenerateContentConfig(
@@ -391,12 +397,6 @@ async def _fetch_weather() -> str:
         return "weather unavailable"
 
 
-def morning_newspaper_sync() -> None:
-    """Synchronous wrapper — APScheduler calls this."""
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(morning_newspaper())
-
-
 async def morning_newspaper() -> None:
     weather = await _fetch_weather()
     t = now_pkt()
@@ -452,7 +452,7 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     if not scheduler.get_job("morning_newspaper"):
         scheduler.add_job(
-            morning_newspaper_sync,
+            morning_newspaper,
             trigger="cron",
             hour=7,
             minute=0,
