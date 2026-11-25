@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Thermal Receipt Printer — Live Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #238636;
+      --accent-hover: #2ea043;
+      --blue: #58a6ff;
+      --purple: #bc8cff;
+      --paper: #fcfbf7;
+      --ink: #111111;
+      --receipt-border: #dcdad3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      font-size: 26px;
+      background: #21262d;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .brand-title h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .brand-title p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .header-badges {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #21262d;
+      border: 1px solid var(--border);
+    }
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #3fb950;
+      box-shadow: 0 0 8px #3fb950;
+    }
+    .badge-dot.pulse {
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    /* Tour Banner */
+    .tour-banner {
+      background: linear-gradient(90deg, #1f6feb 0%, #8957e5 100%);
+      color: #fff;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .btn-tour {
+      background: #fff;
+      color: #0969da;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      transition: transform 0.15s ease;
+    }
+    .btn-tour:hover {
+      transform: scale(1.03);
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 370px 1fr 370px;
+      gap: 20px;
+      padding: 24px;
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    @media (max-width: 1280px) {
+      main { grid-template-columns: 350px 1fr; }
+      .right-panel { grid-column: span 2; }
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      .right-panel { grid-column: span 1; }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: #1c2128;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #f0f6fc;
+    }
+    .panel-body {
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+
+    /* Phone / WhatsApp UI */
+    .phone-frame {
+      background: #0b141a;
+      border-radius: 10px;
+      border: 1px solid #2a3942;
+      display: flex;
+      flex-direction: column;
+      height: 420px;
+      overflow: hidden;
+    }
+    .phone-top {
+      background: #202c33;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #2a3942;
+    }
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #00a884;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .phone-contact { flex: 1; }
+    .phone-contact h3 {
+      font-size: 13px;
+      color: #e9edef;
+      font-weight: 600;
+    }
+    .phone-contact p {
+      font-size: 11px;
+      color: #8696a0;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background-image: radial-gradient(#182229 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+    .msg {
+      max-width: 84%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.4;
+      position: relative;
+      word-break: break-word;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #005c4b;
+      color: #e9edef;
+      border-top-right-radius: 2px;
+    }
+    .msg.bot {
+      align-self: flex-start;
+      background: #202c33;
+      color: #d1d7db;
+      border-top-left-radius: 2px;
+    }
+    .msg-time {
+      font-size: 9px;
+      color: rgba(255,255,255,0.5);
+      float: right;
+      margin-left: 8px;
+      margin-top: 4px;
+    }
+    .phone-input-bar {
+      background: #202c33;
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .phone-input-bar input {
+      flex: 1;
+      background: #2a3942;
+      border: none;
+      outline: none;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .btn-send {
+      background: #00a884;
+      border: none;
+      color: #fff;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    /* Presets */
+    .presets-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    .preset-btn {
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .preset-btn:hover {
+      background: #30363d;
+      border-color: var(--blue);
+      color: #fff;
+    }
+
+    /* Center: The Physical Printer Simulation */
+    .printer-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 14px;
+      padding: 16px 10px;
+    }
+
+    /* Template Tabs */
+    .receipt-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 440px;
+      margin-bottom: 4px;
+    }
+    .receipt-tab {
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 9px;
+      border-radius: 14px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .receipt-tab.active, .receipt-tab:hover {
+      background: #30363d;
+      color: #fff;
+      border-color: var(--blue);
+    }
+
+    .printer-unit {
+      width: 360px;
+      background: linear-gradient(180deg, #2a2f38 0%, #1a1e24 100%);
+      border-radius: 18px;
+      padding: 18px 20px;
+      border: 2px solid #3c4450;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.1);
+      position: relative;
+    }
+    .printer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .printer-badge {
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      color: #9aa5b5;
+      letter-spacing: 1px;
+    }
+    .leds {
+      display: flex;
+      gap: 10px;
+    }
+    .led-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      color: #8b949e;
+      text-transform: uppercase;
+    }
+    .led {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #333;
+    }
+    .led.power { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+    .led.feed { background: #d29922; }
+    .led.feed.active { box-shadow: 0 0 8px #d29922; animation: blink 0.2s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+
+    /* The Mouth / Slot where paper exits */
+    .paper-mouth {
+      background: #0f1217;
+      height: 14px;
+      border-radius: 7px;
+      border: 1px solid #23272f;
+      box-shadow: inset 0 3px 6px #000;
+      position: relative;
+      margin-bottom: -6px;
+      z-index: 2;
+    }
+
+    /* Thermal Paper */
+    .receipt-container {
+      width: 320px;
+      margin: 0 auto;
+      filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
+      position: relative;
+      z-index: 1;
+    }
+    .receipt-paper {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: 'Space Mono', 'Courier New', monospace;
+      font-size: 11.2px;
+      line-height: 1.45;
+      padding: 22px 14px 26px 14px;
+      width: 100%;
+      position: relative;
+      white-space: pre;
+      overflow-x: hidden;
+      clip-path: polygon(
+        0% 0%, 
+        100% 0%, 
+        100% calc(100% - 8px),
+        96% 100%, 92% calc(100% - 8px), 88% 100%, 84% calc(100% - 8px),
+        80% 100%, 76% calc(100% - 8px), 72% 100%, 68% calc(100% - 8px),
+        64% 100%, 60% calc(100% - 8px), 56% 100%, 52% calc(100% - 8px),
+        48% 100%, 44% calc(100% - 8px), 40% 100%, 36% calc(100% - 8px),
+        32% 100%, 28% calc(100% - 8px), 24% 100%, 20% calc(100% - 8px),
+        16% 100%, 12% calc(100% - 8px), 8% 100%, 4% calc(100% - 8px),
+        0% 100%
+      );
+      animation: feedIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+      border-top: 1px dashed #ccc;
+    }
+    @keyframes feedIn {
+      0% {
+        transform: translateY(-60px) scaleY(0.2);
+        opacity: 0.2;
+      }
+      100% {
+        transform: translateY(0) scaleY(1);
+        opacity: 1;
+      }
+    }
+    .character-ruler {
+      font-size: 8px;
+      color: #888;
+      text-align: center;
+      margin-bottom: 6px;
+      user-select: none;
+      letter-spacing: 0.5px;
+      border-bottom: 1px dotted #ccc;
+      padding-bottom: 2px;
+    }
+
+    .printer-controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+      width: 320px;
+    }
+    .printer-btn {
+      flex: 1;
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .printer-btn:hover {
+      background: #30363d;
+      color: #fff;
+    }
+
+    /* Right Panel: Triggers & System Architecture */
+    .trigger-card {
+      background: #21262d;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .trigger-card-title {
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #f0f6fc;
+    }
+    .btn-trigger {
+      background: #238636;
+      border: none;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s ease;
+    }
+    .btn-trigger:hover { background: #2ea043; }
+    .btn-trigger.blue { background: #1f6feb; }
+    .btn-trigger.blue:hover { background: #388bfd; }
+    .btn-trigger.purple { background: #8957e5; }
+    .btn-trigger.purple:hover { background: #a371f7; }
+
+    /* Polling Status Monitor */
+    .poll-box {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px;
+      font-family: 'Fira Code', monospace;
+      font-size: 11px;
+      color: #7ee787;
+      max-height: 120px;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+
+    /* Architecture Visualizer */
+    .arch-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 11.5px;
+    }
+    .arch-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: #1c2128;
+      border-radius: 6px;
+      border-left: 3px solid var(--blue);
+    }
+    .arch-step.active {
+      border-left-color: #3fb950;
+      background: #1f2a24;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Tour Banner -->
+  <div class="tour-banner">
+    <div>⚡ <strong>Interactive Receipt Showcase:</strong> Click any trigger or preset below to watch live 32-character receipts print out!</div>
+    <button class="btn-tour" onclick="runInteractiveTour()">
+      ▶️ Run Guided Tour (Prints 4 Receipts)
+    </button>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🖨️</div>
+      <div class="brand-title">
+        <h1>Smart Thermal Receipt Printer — Live Simulator</h1>
+        <p>WhatsApp Cloud API &bull; Gemini 2.5 Flash &bull; APScheduler &bull; ESP32 &bull; QR204 58mm</p>
+      </div>
+    </div>
+    <div class="header-badges">
+      <div class="badge">
+        <span class="badge-dot pulse" id="serverLed"></span>
+        <span id="serverStatusText">FastAPI: Online (:8000)</span>
+      </div>
+      <div class="badge">
+        <span>⏰ PKT Time:</span>
+        <strong id="pktClock">Loading...</strong>
+      </div>
+      <div class="badge">
+        <span>Queue:</span>
+        <strong id="queueCount">0 pending</strong>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main>
+
+    <!-- LEFT: WhatsApp Interaction -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>💬 WhatsApp Client Simulation</h2>
+        <span style="font-size: 11px; color: var(--text-muted);">+92 331 5355121</span>
+      </div>
+      <div class="panel-body">
+        
+        <!-- Phone Chat Window -->
+        <div class="phone-frame">
+          <div class="phone-top">
+            <div class="avatar">📰</div>
+            <div class="phone-contact">
+              <h3>Personal Newspaper Bot</h3>
+              <p>Online &bull; Powered by Gemini 2.5</p>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="msg bot">
+              👋 Assalam-o-Alaikum! Send me habits, tasks, or print notes and I will format them strictly into 32-column thermal paper receipts!
+              <span class="msg-time">07:00</span>
+            </div>
+          </div>
+          <div class="phone-input-bar">
+            <input type="text" id="waInput" placeholder="Message or print command..." onkeydown="if(event.key==='Enter') sendWhatsAppMessage()">
+            <button class="btn-send" onclick="sendWhatsAppMessage()" title="Send Message">➤</button>
+          </div>
+        </div>
+
+        <!-- Presets -->
+        <div class="presets-title">⚡ Quick Prompts (Click to Send)</div>
+        <div class="preset-grid">
+          <button class="preset-btn" onclick="sendPreset('Print grocery list: 1. Milk 2. Free-range Eggs 3. Coffee beans 4. Thermal Paper Rolls')">
+            🛒 <span>"Print grocery list..."</span>
+          </button>
+          <button class="preset-btn" onclick="sendPreset('Add habit: 45m Deep Exercise')">
+            🏃 <span>"Add habit: 45m Deep Exercise"</span>
+          </button>
+          <button class="preset-btn" onclick="sendPreset('Add task: Submit AI Engineering report due 2026-11-28')">
+            📌 <span>"Add task: Submit report due 2026-11-28"</span>
+          </button>
+          <button class="preset-btn" onclick="sendPreset('Remind me at 8:00 PM to call Mom')">
+            ⏰ <span>"Remind me at 8:00 PM to call Mom"</span>
+          </button>
+          <button class="preset-btn" onclick="sendPreset('What are my habits and tasks?')">
+            📋 <span>"What are my habits and tasks?"</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- CENTER: Physical Thermal Printer -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>🖨️ QR204 58mm Thermal Printer Hardware</h2>
+        <span style="font-size: 11px; color: #7ee787;">ESP32 Serial2 @ 9600 baud</span>
+      </div>
+      <div class="panel-body printer-stage">
+
+        <!-- Template Tabs to view all receipt types -->
+        <div class="receipt-tabs">
+          <button class="receipt-tab active" onclick="loadReceiptPreset('morning')">🌅 Morning</button>
+          <button class="receipt-tab" onclick="loadReceiptPreset('desk')">💻 Desk Sprint</button>
+          <button class="receipt-tab" onclick="loadReceiptPreset('door')">🚪 Pocket Check</button>
+          <button class="receipt-tab" onclick="loadReceiptPreset('evening')">🚶 Evening Check-In</button>
+          <button class="receipt-tab" onclick="loadReceiptPreset('grocery')">🛒 Grocery</button>
+        </div>
+
+        <!-- Printer Chassis -->
+        <div class="printer-unit">
+          <div class="printer-top">
+            <div class="printer-badge">QR204 &bull; 58MM TTL</div>
+            <div class="leds">
+              <div class="led-group">
+                <span class="led power" title="Power OK"></span>
+                <span>PWR</span>
+              </div>
+              <div class="led-group">
+                <span class="led feed" id="feedLed" title="Paper Feed"></span>
+                <span>PRINT</span>
+              </div>
+            </div>
+          </div>
+          <!-- Feed Mouth Slot -->
+          <div class="paper-mouth"></div>
+        </div>
+
+        <!-- Thermal Receipt Paper -->
+        <div class="receipt-container">
+          <div class="receipt-paper" id="receiptPaper">
+<div class="character-ruler">|....+....1....+....2....+....3.|  (32 COLS)</div>================================
+        MORNING EDITION         
+================================
+Date: Wednesday Nov 25, 2026
+Weather: 21.4°C, wind 7.8 km/h
+--------------------------------
+          DAILY HABITS          
+--------------------------------
+[ ] 45m Deep Exercise
+[ ] Read 10 Pages
+[ ] Cold Shower
+--------------------------------
+         TODAY'S TASKS          
+--------------------------------
+[ ] Review Firmware Pull Request
+[ ] Solder ESP32 Level Shifter
+--------------------------------
+      2026-11-25 07:00 PKT      
+================================
+          </div>
+        </div>
+
+        <!-- Printer Actions -->
+        <div class="printer-controls">
+          <button class="printer-btn" onclick="tearPaper()">✂️ Tear / Clear</button>
+          <button class="printer-btn" onclick="copyReceiptText()">📋 Copy Text</button>
+          <button class="printer-btn" onclick="triggerFeedSound()">🔊 Sound Test</button>
+        </div>
+
+        <!-- Architecture Flow -->
+        <div style="width: 100%; margin-top: 6px;">
+          <div class="presets-title" style="margin-bottom: 6px;">🔄 Live End-to-End Pipeline</div>
+          <div class="arch-flow">
+            <div class="arch-step" id="step1">1. User sends WhatsApp voice/text &rarr; Meta Cloud API v25.0</div>
+            <div class="arch-step" id="step2">2. FastAPI Webhook receives payload &rarr; calls Gemini 2.5 Flash</div>
+            <div class="arch-step" id="step3">3. Pydantic parser categorizes &rarr; enqueues 32-col receipt into SQLite</div>
+            <div class="arch-step" id="step4">4. ESP32 polls GET /api/next-print every 5s &rarr; pushes to Serial2</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT: Hardware & Sensor Triggers -->
+    <div class="panel right-panel">
+      <div class="panel-header">
+        <h2>⚡ Hardware Triggers & Automation</h2>
+        <span style="font-size: 11px; color: var(--text-muted);">X-API-Key Protected</span>
+      </div>
+      <div class="panel-body">
+
+        <!-- Morning Edition Trigger -->
+        <div class="trigger-card">
+          <div class="trigger-card-title">
+            <span>🌅 07:00 AM PKT Daily Cron</span>
+            <span style="color: #3fb950; font-size: 10px;">AUTOMATED</span>
+          </div>
+          <p style="font-size: 11px; color: var(--text-muted);">
+            Fetches live Islamabad weather from Open-Meteo, habits & dated tasks.
+          </p>
+          <button class="btn-trigger" onclick="triggerMorningEdition()">
+            🚀 Run Morning Edition Now
+          </button>
+        </div>
+
+        <!-- NFC Cards -->
+        <div class="trigger-card">
+          <div class="trigger-card-title">
+            <span>🏷️ NFC Zone Tags</span>
+            <span style="color: var(--blue); font-size: 10px;">INSTANT</span>
+          </div>
+          <p style="font-size: 11px; color: var(--text-muted);">
+            Simulate physical NFC sticker taps via <code>POST /api/trigger/nfc/{zone}</code>:
+          </p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <button class="btn-trigger blue" onclick="triggerNFC('desk')">
+              💻 Desk (45m Sprint)
+            </button>
+            <button class="btn-trigger blue" onclick="triggerNFC('door')">
+              🚪 Door (Pocket Check)
+            </button>
+          </div>
+          <button class="btn-trigger blue" onclick="triggerNFC('bedside')">
+            🛏️ Bedside (Tomorrow's Preview)
+          </button>
+        </div>
+
+        <!-- Radar Presence Sensor -->
+        <div class="trigger-card">
+          <div class="trigger-card-title">
+            <span>📡 HLK-LD2410B Radar Sensor</span>
+            <span style="color: var(--purple); font-size: 10px;">GPIO 27</span>
+          </div>
+          <p style="font-size: 11px; color: var(--text-muted);">
+            Triggers Evening Check-In receipt between 16:00 and 23:00 PKT with a 4-hour cooldown.
+          </p>
+          <button class="btn-trigger purple" onclick="triggerPresence()">
+            🚶 Trigger Evening Check-In
+          </button>
+        </div>
+
+        <!-- ESP32 Polling Monitor Log -->
+        <div class="trigger-card">
+          <div class="trigger-card-title">
+            <span>📡 ESP32 Polling Monitor</span>
+            <span style="font-size: 10px; color: #7ee787;" id="pollInterval">Polls in 5s</span>
+          </div>
+          <div class="poll-box" id="pollLogs">
+[ESP32] Booted: Wi-Fi connected to SSID (192.168.1.105)
+[ESP32] Serial2 initialized @ 9600 baud (RX=16, TX=17)
+[ESP32] Polling GET /api/next-print every 5 seconds...
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    const API_KEY = "esp32_local_secret_99";
+    let pollCountdown = 5;
+
+    // Preset receipt templates for immediate preview
+    const PRESETS = {
+      morning: `================================
+        MORNING EDITION         
+================================
+Date: Wednesday Nov 25, 2026
+Weather: 21.4°C, wind 7.8 km/h
+--------------------------------
+          DAILY HABITS          
+--------------------------------
+[ ] 45m Deep Exercise
+[ ] Read 10 Pages
+[ ] Cold Shower
+--------------------------------
+         TODAY'S TASKS          
+--------------------------------
+[ ] Review Firmware Pull Request
+[ ] Solder ESP32 Level Shifter
+--------------------------------
+      2026-11-25 07:00 PKT      
+================================`,
+
+      desk: `================================
+        DEEP WORK SPRINT        
+================================
+Start: 12:05
+End:   12:50
+--------------------------------
+RULES:
+1. Phone on silent
+2. Single task only
+3. No social media
+--------------------------------
+           FOCUS MODE
+--------------------------------
+      2026-11-25 12:05 PKT      
+================================`,
+
+      door: `================================
+          POCKET CHECK          
+================================
+[ ] Keys
+[ ] Wallet
+[ ] University ID
+[ ] Laptop & Charger
+--------------------------------
+         SAFE TRAVELS!
+--------------------------------
+      2026-11-25 08:30 PKT      
+================================`,
+
+      evening: `================================
+        EVENING CHECK-IN        
+================================
+Time: 18:30 PKT
+--------------------------------
+             HABITS             
+--------------------------------
+[ ] 45m Deep Exercise
+[ ] Read 10 Pages
+--------------------------------
+        REMAINING TASKS         
+--------------------------------
+[ ] Review Firmware Pull Request
+--------------------------------
+      2026-11-25 18:30 PKT      
+================================`,
+
+      grocery: `================================
+          QUICK PRINT           
+================================
+[ ] Milk (2 Liters)
+[ ] Free-range Eggs (1 Dozen)
+[ ] Arabica Coffee Beans
+[ ] Thermal Receipt Rolls (58mm)
+--------------------------------
+      2026-11-25 14:15 PKT      
+================================`
+    };
+
+    function loadReceiptPreset(key) {
+      document.querySelectorAll('.receipt-tab').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      printReceipt(PRESETS[key]);
+      appendPollLog(`Loaded template: ${key.toUpperCase()}`);
+    }
+
+    // Web Audio Synthesizer for Thermal Printer Stepper / Feed Sound
+    function triggerFeedSound() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        for (let i = 0; i < 18; i++) {
+          setTimeout(() => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "sawtooth";
+            osc.frequency.setValueAtTime(220 + Math.random() * 80, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.03);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.03);
+          }, i * 35);
+        }
+      } catch (e) {}
+    }
+
+    // Append to phone chat
+    function appendChat(text, isUser = false) {
+      const chat = document.getElementById("chatMessages");
+      const div = document.createElement("div");
+      div.className = `msg ${isUser ? "user" : "bot"}`;
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      div.innerHTML = `${text}<span class="msg-time">${timeStr}</span>`;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    // Append to ESP32 poll logs
+    function appendPollLog(text) {
+      const box = document.getElementById("pollLogs");
+      const now = new Date().toLocaleTimeString();
+      box.innerHTML += `\n[${now}] ${text}`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // Render receipt on thermal paper with animation
+    function printReceipt(receiptText) {
+      const paper = document.getElementById("receiptPaper");
+      const feedLed = document.getElementById("feedLed");
+      
+      feedLed.classList.add("active");
+      triggerFeedSound();
+
+      // Highlight architecture flow steps
+      document.getElementById("step3").classList.add("active");
+      document.getElementById("step4").classList.add("active");
+
+      // Animate feed
+      paper.style.animation = "none";
+      void paper.offsetWidth; // trigger reflow
+      paper.style.animation = "feedIn 0.8s cubic-bezier(0.16, 1, 0.3, 1)";
+      
+      const ruler = '<div class="character-ruler">|....+....1....+....2....+....3.|  (32 COLS)</div>';
+      paper.innerHTML = ruler + escapeHtml(receiptText);
+
+      setTimeout(() => {
+        feedLed.classList.remove("active");
+        document.getElementById("step3").classList.remove("active");
+        document.getElementById("step4").classList.remove("active");
+      }, 1500);
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;");
+    }
+
+    function tearPaper() {
+      const paper = document.getElementById("receiptPaper");
+      paper.innerHTML = `<div class="character-ruler">|....+....1....+....2....+....3.|  (32 COLS)</div>\n\n     [ NO ACTIVE RECEIPT ]\n\n  Press any trigger or send a\n WhatsApp message to print!\n\n`;
+      appendPollLog("User tore off printed receipt.");
+    }
+
+    function copyReceiptText() {
+      const paper = document.getElementById("receiptPaper");
+      const text = paper.innerText.replace(/\|\.\.\.\.\+\.\.\.\.1\.\.\.\.\+\.\.\.\.2\.\.\.\.\+\.\.\.\.3\.\|\s*\(32 COLS\)\n/, '');
+      navigator.clipboard.writeText(text);
+      alert("Receipt text copied to clipboard!");
+    }
+
+    // WhatsApp Message Simulation
+    async function sendWhatsAppMessage() {
+      const input = document.getElementById("waInput");
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      sendPreset(text);
+    }
+
+    async function sendPreset(text) {
+      appendChat(text, true);
+      document.getElementById("step1").classList.add("active");
+      document.getElementById("step2").classList.add("active");
+
+      try {
+        const res = await fetch("/api/demo/simulate-whatsapp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        
+        setTimeout(async () => {
+          appendChat(data.reply, false);
+          document.getElementById("step1").classList.remove("active");
+          document.getElementById("step2").classList.remove("active");
+          await checkNextPrint(); // Dequeue and print receipt
+        }, 400);
+
+      } catch (err) {
+        appendChat("⚠️ Error processing message: " + err, false);
+      }
+    }
+
+    // Trigger Morning Edition
+    async function triggerMorningEdition() {
+      appendPollLog("POST /api/demo/morning -> Enqueue Morning Newspaper");
+      const res = await fetch("/api/demo/morning", { method: "POST" });
+      const data = await res.json();
+      appendPollLog("Morning Edition queued in printer.db!");
+      await checkNextPrint();
+    }
+
+    // Trigger NFC
+    async function triggerNFC(zone) {
+      appendPollLog(`NFC Tag tapped: ${zone.toUpperCase()} -> POST /api/trigger/nfc/${zone}`);
+      const res = await fetch(`/api/trigger/nfc/${zone}`, {
+        method: "POST",
+        headers: { "X-API-Key": API_KEY }
+      });
+      const data = await res.json();
+      appendPollLog(`NFC Response: ${JSON.stringify(data)}`);
+      await checkNextPrint();
+    }
+
+    // Trigger Presence (uses force=true so demo prints at any time of day)
+    async function triggerPresence() {
+      appendPollLog("Radar Sensor detected presence -> POST /api/trigger/presence?force=true");
+      const res = await fetch("/api/trigger/presence?force=true", {
+        method: "POST",
+        headers: { "X-API-Key": API_KEY }
+      });
+      const data = await res.json();
+      appendPollLog(`Presence result: ${JSON.stringify(data)}`);
+      await checkNextPrint();
+    }
+
+    // ESP32 Polling Simulator
+    async function checkNextPrint() {
+      try {
+        const res = await fetch("/api/next-print", {
+          headers: { "X-API-Key": API_KEY }
+        });
+        if (res.status === 200) {
+          const text = await res.text();
+          if (text && text.trim().length > 0) {
+            appendPollLog(`[ESP32] Dequeued receipt (${text.length} chars) -> Printing over Serial2`);
+            printReceipt(text);
+          }
+        }
+      } catch (e) {
+        appendPollLog(`[ESP32] Poll error: ${e.message}`);
+      }
+      updateQueueCount();
+    }
+
+    async function updateQueueCount() {
+      try {
+        const res = await fetch("/api/demo/queue-status");
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById("queueCount").innerText = `${data.pending_count} pending`;
+          if (data.server_time) {
+            document.getElementById("pktClock").innerText = data.server_time.split(" ")[1];
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Run Guided Tour that prints all major receipts
+    async function runInteractiveTour() {
+      appendPollLog("--- STARTING GUIDED DEMO TOUR ---");
+      
+      // 1. Morning Edition
+      appendChat("Tour: Simulating 07:00 AM Morning Newspaper...", false);
+      await triggerMorningEdition();
+      await new Promise(r => setTimeout(r, 2200));
+
+      // 2. Desk NFC
+      appendChat("Tour: Tapping Desk NFC Tag for 45m Focus Sprint...", false);
+      await triggerNFC('desk');
+      await new Promise(r => setTimeout(r, 2200));
+
+      // 3. Door NFC
+      appendChat("Tour: Tapping Door NFC Tag for Pocket Check...", false);
+      await triggerNFC('door');
+      await new Promise(r => setTimeout(r, 2200));
+
+      // 4. WhatsApp Grocery Print
+      appendChat("Tour: Sending WhatsApp quick note...", false);
+      await sendPreset("Print grocery list: 1. Milk 2. Free-range Eggs 3. Coffee beans");
+      await new Promise(r => setTimeout(r, 2200));
+
+      // 5. Radar Evening Check-in
+      appendChat("Tour: Radar sensor detects room entry (Evening Check-In)...", false);
+      await triggerPresence();
+      
+      appendPollLog("--- GUIDED TOUR COMPLETED ---");
+    }
+
+    // 5-second polling loop matching the ESP32 firmware
+    setInterval(() => {
+      pollCountdown--;
+      if (pollCountdown <= 0) {
+        pollCountdown = 5;
+        checkNextPrint();
+      }
+      document.getElementById("pollInterval").innerText = `Polls in ${pollCountdown}s`;
+    }, 1000);
+
+    // Initial check
+    updateQueueCount();
+  </script>
+</body>
+</html>

@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, FileResponse
 from pydantic import BaseModel, Field
 
 # --- Google GenAI ----------------------------------------------------------
@@ -620,20 +620,21 @@ async def nfc_trigger(zone: str, x_api_key: str = Header(None)):
 
 
 @app.post("/api/trigger/presence")
-async def presence_trigger(x_api_key: str = Header(None)):
+async def presence_trigger(x_api_key: str = Header(None), force: bool = Query(False)):
     global _last_presence_trigger
     require_api_key(x_api_key)
 
     t = now_pkt()
     hour = t.hour
 
-    # Only active between 16:00 and 23:00 PKT
-    if hour < 16 or hour >= 23:
-        return {"status": "outside_window"}
+    if not force:
+        # Only active between 16:00 and 23:00 PKT
+        if hour < 16 or hour >= 23:
+            return {"status": "outside_window"}
 
-    # 4-hour cooldown
-    if _last_presence_trigger and (t - _last_presence_trigger) < timedelta(hours=4):
-        return {"status": "cooldown"}
+        # 4-hour cooldown
+        if _last_presence_trigger and (t - _last_presence_trigger) < timedelta(hours=4):
+            return {"status": "cooldown"}
 
     _last_presence_trigger = t
 
@@ -696,6 +697,123 @@ async def next_print(x_api_key: str = Header(None)):
         s.commit()
 
     return PlainTextResponse(content=receipt_text, status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Interactive Demo & Web Simulator Endpoints
+# ---------------------------------------------------------------------------
+class SimulateWhatsAppRequest(BaseModel):
+    text: str
+
+
+@app.get("/")
+@app.get("/demo")
+async def demo_page():
+    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return PlainTextResponse("Demo page not found. Ensure backend/static/index.html exists.")
+
+
+@app.post("/api/demo/morning")
+async def trigger_morning_demo():
+    await morning_newspaper()
+    return {"status": "queued", "message": "Morning newspaper enqueued"}
+
+
+@app.post("/api/demo/simulate-whatsapp")
+async def simulate_whatsapp_demo(req: SimulateWhatsAppRequest):
+    try:
+        decision = await classify_message(req.text)
+    except Exception:
+        # Fallback for demo when GEMINI_API_KEY is not yet populated
+        txt = req.text.strip()
+        lower = txt.lower()
+        if "print" in lower:
+            clean = txt.replace("print", "").replace("Print", "").strip(": ")
+            if "," in clean:
+                lines = [item.strip() for item in clean.split(",") if item.strip()]
+            elif "\n" in clean:
+                lines = [item.strip() for item in clean.split("\n") if item.strip()]
+            else:
+                lines = [clean]
+            decision = GeminiDecision(
+                action=ActionName.print_now,
+                receipt_title="QUICK PRINT",
+                receipt_lines=lines[:10],
+                reply="🖨️ Queued receipt for immediate printing."
+            )
+        elif "habit" in lower:
+            habit_title = txt.replace("add habit", "").replace("habit:", "").strip()[:26]
+            h_title = habit_title or "Daily Habit"
+            decision = GeminiDecision(
+                action=ActionName.add_daily,
+                items=[TaskItem(title=h_title)],
+                reply=f"✅ Added habit \"{h_title}\"! It will appear in your 07:00 AM Morning Newspaper."
+            )
+            # Enqueue a receipt confirmation in demo mode so user sees printout
+            execute_print_now("HABIT ADDED", [f"New Habit: {h_title}", divider("-"), "Scheduled for daily morning newspaper."])
+        elif "list" in lower or "what" in lower:
+            decision = GeminiDecision(
+                action=ActionName.list_tasks,
+                reply=execute_list_tasks()
+            )
+        elif "task" in lower or "due" in lower:
+            task_title = txt.replace("add task", "").replace("task:", "").strip()[:26]
+            t_title = task_title or "Dated Task"
+            decision = GeminiDecision(
+                action=ActionName.add_dated,
+                items=[TaskItem(title=t_title, due_date=now_pkt().strftime("%Y-%m-%d"))],
+                reply=f"📌 Added task: \"{t_title}\" (Due: {now_pkt().strftime('%Y-%m-%d')})"
+            )
+            execute_print_now("TASK CREATED", [f"Task: {t_title}", f"Due:  {now_pkt().strftime('%Y-%m-%d')}", divider("-"), "Queued in dated_tasks table."])
+        elif "remind" in lower or "schedule" in lower or "at " in lower:
+            decision = GeminiDecision(
+                action=ActionName.schedule_print,
+                receipt_title="REMINDER",
+                receipt_lines=[txt[:32]],
+                schedule_iso=now_pkt().isoformat(),
+                reply=f"⏰ Scheduled printout for: {txt[:32]}"
+            )
+            execute_print_now("REMINDER", [txt[:32], divider("-"), "Scheduled in jobs.db"])
+        else:
+            lines = [line.strip() for line in txt.split("\n") if line.strip()]
+            decision = GeminiDecision(
+                action=ActionName.print_now,
+                receipt_title="WHATSAPP PRINT",
+                receipt_lines=lines[:8] if lines else [txt[:32]],
+                reply="🖨️ Queued receipt for immediate printing."
+            )
+
+    # Execute action
+    if decision.action == ActionName.add_daily:
+        execute_add_daily(decision.items)
+    elif decision.action == ActionName.add_dated:
+        execute_add_dated(decision.items)
+    elif decision.action == ActionName.print_now:
+        execute_print_now(decision.receipt_title, decision.receipt_lines)
+    elif decision.action == ActionName.schedule_print:
+        execute_print_now(decision.receipt_title, decision.receipt_lines)
+    elif decision.action == ActionName.list_tasks:
+        decision.reply = execute_list_tasks()
+
+    return {"decision": decision.model_dump(), "reply": decision.reply}
+
+
+@app.get("/api/demo/queue-status")
+def get_queue_status():
+    with Session(engine) as s:
+        pending = s.execute(select(PrintQueue).where(PrintQueue.printed == 0)).scalars().all()
+        recent = s.execute(select(PrintQueue).order_by(PrintQueue.id.desc()).limit(6)).scalars().all()
+        habits = s.execute(select(Habit).where(Habit.active == 1)).scalars().all()
+        tasks = s.execute(select(DatedTask).where(DatedTask.completed == 0)).scalars().all()
+        return {
+            "pending_count": len(pending),
+            "recent_receipts": [{"id": r.id, "text": r.receipt_text, "printed": r.printed, "created_at": r.created_at} for r in recent],
+            "habits": [h.title for h in habits],
+            "tasks": [{"title": t.title, "due_date": t.due_date} for t in tasks],
+            "server_time": now_pkt().strftime("%Y-%m-%d %H:%M:%S PKT")
+        }
 
 
 # ---------------------------------------------------------------------------
