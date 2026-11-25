@@ -49,6 +49,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 # ---------------------------------------------------------------------------
 load_dotenv()
 
+USER_NAME = os.getenv("USER_NAME", "Amar Abdul Rehman").strip().upper()
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "printer_secret_2026")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "1428007273647455")
@@ -106,41 +107,98 @@ scheduler = AsyncIOScheduler(
 )
 
 # ---------------------------------------------------------------------------
-# 32-char receipt formatter helpers
+# Executive 32-Character Receipt Formatter Engine
 # ---------------------------------------------------------------------------
 
 
-def center(text: str) -> str:
-    return text.upper().center(WIDTH)
+def center(text: str, width: int = WIDTH) -> str:
+    return text.upper().center(width)
 
 
 def divider(char: str = "=") -> str:
     return char * WIDTH
 
 
-def wrap_line(text: str) -> str:
-    """Wrap a single string to WIDTH, preserving leading checkbox."""
-    return "\n".join(textwrap.wrap(text, WIDTH))
+def section_header(title: str) -> str:
+    """e.g. '--- [ DAILY HABITS ] -----------' exactly 32 chars"""
+    tag = f" [ {title.upper()} ] "
+    if len(tag) >= WIDTH:
+        return tag[:WIDTH]
+    left_pad = 3
+    right_pad = WIDTH - len(tag) - left_pad
+    return ("-" * left_pad) + tag + ("-" * right_pad)
+
+
+def format_checkbox_item(text: str, width: int = WIDTH) -> list[str]:
+    """
+    Format actionable tasks with clean hanging indentation:
+    [ ] Complete the ESP32 circuit
+        design and PCB layout
+    """
+    clean = text.strip()
+    if clean.startswith("[ ]") or clean.startswith("[]") or clean.startswith("[x]") or clean.startswith("[X]"):
+        clean = clean.lstrip("[]xX ").strip()
+    elif clean.startswith("•") or clean.startswith("-") or clean.startswith("*"):
+        clean = clean.lstrip("•-* ").strip()
+
+    prefix = "[ ] "
+    indent = "    "
+    wrapped = textwrap.fill(clean, width=width, initial_indent=prefix, subsequent_indent=indent)
+    return wrapped.split("\n")
+
+
+def format_body_line(text: str, width: int = WIDTH) -> list[str]:
+    """Wrap body text preserving words up to 32 chars."""
+    clean = text.strip()
+    if not clean:
+        return [""]
+    if clean.startswith("---") or clean.startswith("==="):
+        return [clean[:width]]
+    return textwrap.wrap(clean, width=width)
 
 
 def checkbox(text: str) -> str:
-    prefix = "[ ] "
-    max_txt = WIDTH - len(prefix)
-    return prefix + text[:max_txt]
+    """Helper for legacy callers returning a single checkbox string."""
+    return f"[ ] {text.strip()}"
 
 
-def format_receipt(title: str, body_lines: list[str]) -> str:
-    """Build a complete receipt string."""
+def format_receipt(
+    title: str,
+    body_lines: list[str],
+    subtitle: str | None = None,
+    badge: str = "OFFICIAL DISPATCH"
+) -> str:
+    """
+    Builds a personalized, executive 32-character receipt with dividers,
+    timestamps, and proper hanging-indented checkboxes.
+    """
     lines: list[str] = [
         divider("="),
-        center(title),
+        center(USER_NAME),
+        center(subtitle or "PERSONAL NEWSPAPER"),
         divider("="),
+        center(title),
+        divider("-"),
+        f"{now_pkt().strftime('%a %b %d, %Y | %H:%M')}".center(WIDTH),
+        divider("-"),
     ]
+
     for line in body_lines:
-        lines.append(wrap_line(line))
+        sline = line.strip()
+        if not sline:
+            continue
+        if sline.startswith("---") or sline.startswith("==="):
+            lines.append(sline[:WIDTH])
+        elif sline.startswith("[SECTION:"):
+            sec = sline.replace("[SECTION:", "").replace("]", "").strip()
+            lines.append(section_header(sec))
+        elif sline.startswith("[ ]") or sline.startswith("•") or sline.startswith("- ") or sline.startswith("* "):
+            lines.extend(format_checkbox_item(sline))
+        else:
+            lines.extend(format_body_line(sline))
+
     lines.append(divider("-"))
-    stamp = now_pkt().strftime("%Y-%m-%d %H:%M PKT")
-    lines.append(stamp.center(WIDTH))
+    lines.append(center(badge))
     lines.append(divider("="))
     return "\n".join(lines)
 
@@ -236,24 +294,35 @@ def get_gemini_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
+def get_system_context(t: datetime) -> str:
+    return (
+        f"You are the elite Executive Chief of Staff and Personal Editor for {USER_NAME}. "
+        f"Current Date: {t.strftime('%Y-%m-%d')} ({t.strftime('%A')}). "
+        f"Current Time: {t.strftime('%H:%M')} Asia/Karachi (PKT).\n\n"
+        f"Your mission: Transform raw text and voice notes from {USER_NAME} into immaculate, "
+        "ultra-professional, executive thermal receipt prints. Nothing must be missed or compromised.\n\n"
+        "RULES FOR EXCELLENCE:\n"
+        f"1. Personalized: Every printout is tailored specifically for {USER_NAME}.\n"
+        "2. Completeness: Never drop details, deadlines, counts, or nuances. Structure messy thoughts into "
+        "crisp, numbered or bulleted items with clear sections.\n"
+        "3. Checkboxes: Every actionable task, shopping item, or checklist item MUST start with '[ ] '.\n"
+        "4. 32-Column Thermal Formatting: Keep receipt_title ≤ 26 characters (UPPERCASE, e.g. 'EXECUTIVE DISPATCH', "
+        "'GROCERY MANIFEST', 'PROJECT BRIEF'). Keep each item in 'receipt_lines' concise and punchy.\n"
+        "5. Categorization:\n"
+        "   • add_daily: Recurring daily habits -> populate 'items' with titles (≤26 chars).\n"
+        "   • add_dated: Deadlines/tasks -> populate 'items' with title and 'due_date' (YYYY-MM-DD).\n"
+        "   • print_now: Immediate physical printout -> populate 'receipt_title' and structured 'receipt_lines' (all starting with '[ ] ').\n"
+        "   • schedule_print: Deferred printout -> calculate absolute Asia/Karachi ISO timestamp in 'schedule_iso', populate 'receipt_title' and 'receipt_lines'.\n"
+        "   • list_tasks: Inquiries about existing habits/tasks.\n"
+        f"6. Replies: Always address {USER_NAME} with utmost executive polish, confirming exactly what was done."
+    )
+
+
 async def classify_message(user_text: str) -> GeminiDecision:
     """Send user message to Gemini and get a structured action decision."""
     client = get_gemini_client()
     t = now_pkt()
-    system_context = (
-        f"Current date: {t.strftime('%Y-%m-%d')} ({t.strftime('%A')}). "
-        f"Current time: {t.strftime('%H:%M')} Asia/Karachi (PKT). "
-        "You are an assistant that classifies WhatsApp messages into printer actions. "
-        "Actions:\n"
-        "• add_daily – add recurring daily habits (populate items with titles, no due_date)\n"
-        "• add_dated – add tasks with specific dates (populate items with titles + due_date YYYY-MM-DD)\n"
-        "• print_now – immediately print a receipt (populate receipt_title + receipt_lines)\n"
-        "• schedule_print – print a receipt at a scheduled time (populate receipt_title + receipt_lines + schedule_iso as Asia/Karachi ISO datetime)\n"
-        "• list_tasks – user wants to see their habits & tasks (no items needed)\n"
-        "Keep titles ≤ 26 characters. Keep receipt_lines each ≤ 32 characters. "
-        "If the user says 'in 45 mins' or 'at 7 PM', compute the absolute ISO datetime from the current time. "
-        "Always include a short, friendly 'reply' confirming what you did."
-    )
+    system_context = get_system_context(t)
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
@@ -272,27 +341,13 @@ async def classify_voice(audio_bytes: bytes, mime_type: str) -> GeminiDecision:
     """Send inline voice note to Gemini and get a structured action decision."""
     client = get_gemini_client()
     t = now_pkt()
-    system_context = (
-        f"Current date: {t.strftime('%Y-%m-%d')} ({t.strftime('%A')}). "
-        f"Current time: {t.strftime('%H:%M')} Asia/Karachi (PKT). "
-        "You are an assistant that classifies WhatsApp voice messages into printer actions. "
-        "First transcribe the audio, then classify. "
-        "Actions:\n"
-        "• add_daily – add recurring daily habits (populate items with titles, no due_date)\n"
-        "• add_dated – add tasks with specific dates (populate items with titles + due_date YYYY-MM-DD)\n"
-        "• print_now – immediately print a receipt (populate receipt_title + receipt_lines)\n"
-        "• schedule_print – print a receipt at a scheduled time (populate receipt_title + receipt_lines + schedule_iso as Asia/Karachi ISO datetime)\n"
-        "• list_tasks – user wants to see their habits & tasks (no items needed)\n"
-        "Keep titles ≤ 26 characters. Keep receipt_lines each ≤ 32 characters. "
-        "If the user says 'in 45 mins' or 'at 7 PM', compute the absolute ISO datetime from the current time. "
-        "Always include a short, friendly 'reply' confirming what you did."
-    )
+    system_context = get_system_context(t)
 
     audio_part = genai_types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=[audio_part, "Classify this voice message into a printer action."],
+        contents=[audio_part, f"Transcribe and classify this voice dispatch from {USER_NAME}."],
         config=genai_types.GenerateContentConfig(
             system_instruction=system_context,
             response_mime_type="application/json",
@@ -411,28 +466,33 @@ async def morning_newspaper() -> None:
             )
         ).scalars().all()
 
-    body: list[str] = []
-    body.append(f"Date: {t.strftime('%A %b %d, %Y')}")
-    body.append(f"Weather: {weather}")
-    body.append(divider("-"))
+    body: list[str] = [
+        f"Islamabad Weather: {weather}",
+        "[SECTION:DAILY HABITS]",
+    ]
 
     if habits:
-        body.append(center("DAILY HABITS"))
-        body.append(divider("-"))
         for h in habits:
-            body.append(checkbox(h.title))
+            body.append(f"[ ] {h.title}")
+    else:
+        body.append("[ ] Morning 45m Exercise")
+        body.append("[ ] Read 10 Pages & Set Goals")
+        body.append("[ ] Cold Shower & Hydration")
 
+    body.append("[SECTION:TODAY'S OBJECTIVES]")
     if tasks:
-        body.append(divider("-"))
-        body.append(center("TODAY'S TASKS"))
-        body.append(divider("-"))
         for tk in tasks:
-            body.append(checkbox(tk.title))
+            body.append(f"[ ] {tk.title}")
+    else:
+        body.append("[ ] Review High-Priority Tasks")
+        body.append("[ ] Complete Deep Work Sprint")
 
-    if not habits and not tasks:
-        body.append("No habits or tasks today.")
-
-    receipt = format_receipt("MORNING EDITION", body)
+    receipt = format_receipt(
+        "MORNING EDITION",
+        body,
+        subtitle="EXECUTIVE DAILY BRIEF",
+        badge="OWN THE DAY • EXECUTE"
+    )
     enqueue_receipt(receipt)
 
 
@@ -566,28 +626,37 @@ async def nfc_trigger(zone: str, x_api_key: str = Header(None)):
     if zone == "desk":
         end = t + timedelta(minutes=45)
         body = [
-            f"Start: {t.strftime('%H:%M')}",
-            f"End:   {end.strftime('%H:%M')}",
-            divider("-"),
-            "RULES:",
-            "1. Phone on silent",
-            "2. Single task only",
-            "3. No social media",
-            divider("-"),
-            center("FOCUS MODE"),
+            f"Window: {t.strftime('%H:%M')} -> {end.strftime('%H:%M PKT')}",
+            "[SECTION:FOCUS PROTOCOL]",
+            "[ ] Single high-value objective",
+            "[ ] Phone on Do Not Disturb",
+            "[ ] Close all unrelated tabs",
+            "[ ] Hydrate & maintain posture",
+            "[ ] 5-min post-sprint debrief",
         ]
-        receipt = format_receipt("DEEP WORK SPRINT", body)
+        receipt = format_receipt(
+            "DEEP WORK SPRINT",
+            body,
+            subtitle="FOCUS TICKET (45 MIN)",
+            badge="ZERO DISTRACTIONS • EXECUTE"
+        )
 
     elif zone == "door":
         body = [
-            checkbox("Keys"),
-            checkbox("Wallet"),
-            checkbox("University ID"),
-            checkbox("Laptop & Charger"),
-            divider("-"),
-            center("SAFE TRAVELS!"),
+            "[SECTION:DEPARTURE CHECKLIST]",
+            "[ ] House & Car Keys",
+            "[ ] Wallet, CNIC & Cards",
+            "[ ] University Student ID",
+            "[ ] Laptop & USB-C Charger",
+            "[ ] Earbuds & Power Bank",
+            "[ ] Review Today's Appointments",
         ]
-        receipt = format_receipt("POCKET CHECK", body)
+        receipt = format_receipt(
+            "POCKET CHECK",
+            body,
+            subtitle="DEPARTURE MANIFEST",
+            badge="SAFE TRAVELS • CONQUER TODAY"
+        )
 
     elif zone == "bedside":
         tomorrow = (t + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -598,14 +667,28 @@ async def nfc_trigger(zone: str, x_api_key: str = Header(None)):
                     DatedTask.due_date == tomorrow,
                 )
             ).scalars().all()
-        body = [f"Date: {tomorrow}", divider("-")]
+        body = [
+            f"Target Date: {tomorrow}",
+            "[SECTION:TOMORROW'S AGENDA]",
+        ]
         if tasks:
             for tk in tasks:
-                body.append(checkbox(tk.title))
+                body.append(f"[ ] {tk.title}")
         else:
-            body.append("No tasks for tomorrow.")
-            body.append("Rest well!")
-        receipt = format_receipt("TOMORROW PREVIEW", body)
+            body.append("[ ] No fixed tasks scheduled")
+            body.append("[ ] Dedicate morning to core habits")
+
+        body.append("[SECTION:NIGHTLY RECOVERY]")
+        body.append("[ ] Set 06:30 AM Wakeup Alarm")
+        body.append("[ ] Phone docked away from bed")
+        body.append("[ ] Target 8h restorative sleep")
+
+        receipt = format_receipt(
+            "TOMORROW PREVIEW",
+            body,
+            subtitle="NIGHTLY BRIEFING",
+            badge="REST DEEPLY • WIN TOMORROW"
+        )
 
     else:
         raise HTTPException(status_code=404, detail=f"Unknown zone: {zone}")
@@ -648,22 +731,32 @@ async def presence_trigger(x_api_key: str = Header(None), force: bool = Query(Fa
             )
         ).scalars().all()
 
-    body = [f"Time: {t.strftime('%H:%M PKT')}", divider("-")]
-    if habits:
-        body.append(center("HABITS"))
-        body.append(divider("-"))
-        for h in habits:
-            body.append(checkbox(h.title))
+    body = [
+        f"Time Log: {t.strftime('%H:%M PKT')}",
+        "[SECTION:REMAINING OBJECTIVES]",
+    ]
     if tasks:
-        body.append(divider("-"))
-        body.append(center("REMAINING TASKS"))
-        body.append(divider("-"))
         for tk in tasks:
-            body.append(checkbox(tk.title))
-    if not habits and not tasks:
-        body.append("All clear! Enjoy your evening.")
+            body.append(f"[ ] {tk.title}")
+    else:
+        body.append("[ ] All dated tasks completed!")
 
-    receipt = format_receipt("EVENING CHECK-IN", body)
+    if habits:
+        body.append("[SECTION:DAILY HABITS CHECK]")
+        for h in habits:
+            body.append(f"[ ] {h.title}")
+
+    body.append("[SECTION:EVENING PROTOCOL]")
+    body.append("[ ] Log daily accomplishments")
+    body.append("[ ] Review tomorrow's priorities")
+    body.append("[ ] Digital wind-down")
+
+    receipt = format_receipt(
+        "EVENING CHECK-IN",
+        body,
+        subtitle="PRESENCE DETECTED",
+        badge="WRAP UP STRONG • REFLECT"
+    )
     enqueue_receipt(receipt)
     return {"status": "queued"}
 
@@ -732,16 +825,21 @@ async def simulate_whatsapp_demo(req: SimulateWhatsAppRequest):
         if "print" in lower:
             clean = txt.replace("print", "").replace("Print", "").strip(": ")
             if "," in clean:
-                lines = [item.strip() for item in clean.split(",") if item.strip()]
+                raw_items = [item.strip() for item in clean.split(",") if item.strip()]
             elif "\n" in clean:
-                lines = [item.strip() for item in clean.split("\n") if item.strip()]
+                raw_items = [item.strip() for item in clean.split("\n") if item.strip()]
             else:
-                lines = [clean]
+                raw_items = [clean]
+
+            lines = ["[SECTION:ACTION MANIFEST]"]
+            for item in raw_items:
+                lines.append(f"[ ] {item}")
+
             decision = GeminiDecision(
                 action=ActionName.print_now,
-                receipt_title="QUICK PRINT",
-                receipt_lines=lines[:10],
-                reply="🖨️ Queued receipt for immediate printing."
+                receipt_title="EXECUTIVE MANIFEST",
+                receipt_lines=lines,
+                reply=f"🖨️ Formatted & enqueued executive manifest with checkboxes for {USER_NAME}."
             )
         elif "habit" in lower:
             habit_title = txt.replace("add habit", "").replace("habit:", "").strip()[:26]
@@ -749,10 +847,12 @@ async def simulate_whatsapp_demo(req: SimulateWhatsAppRequest):
             decision = GeminiDecision(
                 action=ActionName.add_daily,
                 items=[TaskItem(title=h_title)],
-                reply=f"✅ Added habit \"{h_title}\"! It will appear in your 07:00 AM Morning Newspaper."
+                reply=f"✅ Logged habit for {USER_NAME}: \"{h_title}\". It will automatically print in your 07:00 AM Morning Newspaper!"
             )
-            # Enqueue a receipt confirmation in demo mode so user sees printout
-            execute_print_now("HABIT ADDED", [f"New Habit: {h_title}", divider("-"), "Scheduled for daily morning newspaper."])
+            execute_print_now(
+                "HABIT REGISTERED",
+                [f"New Target: {h_title}", divider("-"), "Enqueued into daily habits database."]
+            )
         elif "list" in lower or "what" in lower:
             decision = GeminiDecision(
                 action=ActionName.list_tasks,
@@ -764,25 +864,34 @@ async def simulate_whatsapp_demo(req: SimulateWhatsAppRequest):
             decision = GeminiDecision(
                 action=ActionName.add_dated,
                 items=[TaskItem(title=t_title, due_date=now_pkt().strftime("%Y-%m-%d"))],
-                reply=f"📌 Added task: \"{t_title}\" (Due: {now_pkt().strftime('%Y-%m-%d')})"
+                reply=f"📌 Logged dated task for {USER_NAME}: \"{t_title}\" (Due: {now_pkt().strftime('%Y-%m-%d')})"
             )
-            execute_print_now("TASK CREATED", [f"Task: {t_title}", f"Due:  {now_pkt().strftime('%Y-%m-%d')}", divider("-"), "Queued in dated_tasks table."])
+            execute_print_now(
+                "TASK REGISTERED",
+                [f"Task: {t_title}", f"Due:  {now_pkt().strftime('%Y-%m-%d')}", divider("-"), "Active in dated_tasks agenda."]
+            )
         elif "remind" in lower or "schedule" in lower or "at " in lower:
             decision = GeminiDecision(
                 action=ActionName.schedule_print,
-                receipt_title="REMINDER",
-                receipt_lines=[txt[:32]],
+                receipt_title="REMINDER DISPATCH",
+                receipt_lines=[f"[ ] {txt[:32]}"],
                 schedule_iso=now_pkt().isoformat(),
-                reply=f"⏰ Scheduled printout for: {txt[:32]}"
+                reply=f"⏰ Scheduled high-priority reminder for {USER_NAME}: {txt[:32]}"
             )
-            execute_print_now("REMINDER", [txt[:32], divider("-"), "Scheduled in jobs.db"])
+            execute_print_now(
+                "REMINDER DISPATCH",
+                [f"[ ] {txt[:32]}", divider("-"), "Persisted in jobs.db scheduler."]
+            )
         else:
-            lines = [line.strip() for line in txt.split("\n") if line.strip()]
+            raw_lines = [line.strip() for line in txt.split("\n") if line.strip()] or [txt[:32]]
+            formatted = ["[SECTION:NOTES & MEMO]"]
+            for r in raw_lines:
+                formatted.append(f"[ ] {r}")
             decision = GeminiDecision(
                 action=ActionName.print_now,
-                receipt_title="WHATSAPP PRINT",
-                receipt_lines=lines[:8] if lines else [txt[:32]],
-                reply="🖨️ Queued receipt for immediate printing."
+                receipt_title="EXECUTIVE MEMO",
+                receipt_lines=formatted,
+                reply=f"🖨️ Formatted & enqueued executive memo for {USER_NAME}."
             )
 
     # Execute action

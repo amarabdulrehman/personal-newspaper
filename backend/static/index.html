@@ -583,8 +583,8 @@
     <div class="brand">
       <div class="brand-icon">🖨️</div>
       <div class="brand-title">
-        <h1>Smart Thermal Receipt Printer — Live Simulator</h1>
-        <p>WhatsApp Cloud API &bull; Gemini 2.5 Flash &bull; APScheduler &bull; ESP32 &bull; QR204 58mm</p>
+        <h1>Amar Abdul Rehman — Executive Dispatch</h1>
+        <p>Smart Thermal Receipt Engine &bull; ESP32 DevKit &bull; QR204 58mm &bull; Meta API v25.0</p>
       </div>
     </div>
     <div class="header-badges">
@@ -698,23 +698,25 @@
         <div class="receipt-container">
           <div class="receipt-paper" id="receiptPaper">
 <div class="character-ruler">|....+....1....+....2....+....3.|  (32 COLS)</div>================================
-        MORNING EDITION         
+       AMAR ABDUL REHMAN        
+     EXECUTIVE DAILY BRIEF      
 ================================
-Date: Wednesday Nov 25, 2026
-Weather: 21.4°C, wind 7.8 km/h
+        MORNING EDITION         
 --------------------------------
-          DAILY HABITS          
+  Wed Nov 25, 2026 | 07:00 PKT  
 --------------------------------
-[ ] 45m Deep Exercise
-[ ] Read 10 Pages
-[ ] Cold Shower
---------------------------------
-         TODAY'S TASKS          
---------------------------------
+Islamabad: 21.4°C, Wind 7.8 km/h
+--- [ DAILY HABITS ] -----------
+[ ] Morning 45m Exercise &
+    Cardio Routine
+[ ] Read 10 Pages & Set Goals
+[ ] Cold Shower & Hydration
+--- [ TODAY'S OBJECTIVES ] -----
 [ ] Review Firmware Pull Request
 [ ] Solder ESP32 Level Shifter
+[ ] Finalize Project Milestones
 --------------------------------
-      2026-11-25 07:00 PKT      
+     OWN THE DAY • EXECUTE      
 ================================
           </div>
         </div>
@@ -823,80 +825,104 @@ Weather: 21.4°C, wind 7.8 km/h
     // Preset receipt templates for immediate preview
     const PRESETS = {
       morning: `================================
-        MORNING EDITION         
+       AMAR ABDUL REHMAN        
+     EXECUTIVE DAILY BRIEF      
 ================================
-Date: Wednesday Nov 25, 2026
-Weather: 21.4°C, wind 7.8 km/h
+        MORNING EDITION         
 --------------------------------
-          DAILY HABITS          
+  Wed Nov 25, 2026 | 07:00 PKT  
 --------------------------------
-[ ] 45m Deep Exercise
-[ ] Read 10 Pages
-[ ] Cold Shower
---------------------------------
-         TODAY'S TASKS          
---------------------------------
+Islamabad: 21.4°C, Wind 7.8 km/h
+--- [ DAILY HABITS ] -----------
+[ ] Morning 45m Exercise &
+    Cardio Routine
+[ ] Read 10 Pages & Set Goals
+[ ] Cold Shower & Hydration
+--- [ TODAY'S OBJECTIVES ] -----
 [ ] Review Firmware Pull Request
 [ ] Solder ESP32 Level Shifter
+[ ] Finalize Project Milestones
 --------------------------------
-      2026-11-25 07:00 PKT      
+     OWN THE DAY • EXECUTE      
 ================================`,
 
       desk: `================================
-        DEEP WORK SPRINT        
+       AMAR ABDUL REHMAN        
+     FOCUS TICKET (45 MIN)      
 ================================
-Start: 12:05
-End:   12:50
+        DEEP WORK SPRINT        
 --------------------------------
-RULES:
-1. Phone on silent
-2. Single task only
-3. No social media
+  Wed Nov 25, 2026 | 12:15 PKT  
 --------------------------------
-           FOCUS MODE
+Window: 12:15 -> 13:00 PKT
+--- [ FOCUS PROTOCOL ] ---------
+[ ] Single high-value objective
+[ ] Phone on Do Not Disturb
+[ ] Close all unrelated tabs
+[ ] Hydrate & maintain posture
+[ ] 5-min post-sprint debrief
 --------------------------------
-      2026-11-25 12:05 PKT      
+  ZERO DISTRACTIONS • EXECUTE   
 ================================`,
 
       door: `================================
-          POCKET CHECK          
+       AMAR ABDUL REHMAN        
+       DEPARTURE MANIFEST       
 ================================
-[ ] Keys
-[ ] Wallet
-[ ] University ID
-[ ] Laptop & Charger
+          POCKET CHECK          
 --------------------------------
-         SAFE TRAVELS!
+  Wed Nov 25, 2026 | 08:30 PKT  
 --------------------------------
-      2026-11-25 08:30 PKT      
+--- [ DEPARTURE CHECKLIST ] ----
+[ ] House & Car Keys
+[ ] Wallet, CNIC & Cards
+[ ] University Student ID
+[ ] Laptop & USB-C Charger
+[ ] Earbuds & Power Bank
+[ ] Review Today's Appointments
+--------------------------------
+  SAFE TRAVELS • CONQUER TODAY  
 ================================`,
 
       evening: `================================
-        EVENING CHECK-IN        
+       AMAR ABDUL REHMAN        
+       PRESENCE DETECTED        
 ================================
-Time: 18:30 PKT
+        EVENING CHECK-IN        
 --------------------------------
-             HABITS             
+  Wed Nov 25, 2026 | 18:30 PKT  
 --------------------------------
-[ ] 45m Deep Exercise
-[ ] Read 10 Pages
---------------------------------
-        REMAINING TASKS         
---------------------------------
+Time Log: 18:30 PKT
+--- [ REMAINING OBJECTIVES ] ---
 [ ] Review Firmware Pull Request
+[ ] Verify Thermal Roll Stock
+--- [ DAILY HABITS CHECK ] -----
+[ ] Morning 45m Exercise
+[ ] Read 10 Pages & Set Goals
+--- [ EVENING PROTOCOL ] -------
+[ ] Log daily accomplishments
+[ ] Review tomorrow's priorities
+[ ] Digital wind-down
 --------------------------------
-      2026-11-25 18:30 PKT      
+    WRAP UP STRONG • REFLECT    
 ================================`,
 
       grocery: `================================
-          QUICK PRINT           
+       AMAR ABDUL REHMAN        
+       PERSONAL DISPATCH        
 ================================
-[ ] Milk (2 Liters)
-[ ] Free-range Eggs (1 Dozen)
-[ ] Arabica Coffee Beans
-[ ] Thermal Receipt Rolls (58mm)
+        ACTION MANIFEST         
 --------------------------------
-      2026-11-25 14:15 PKT      
+  Wed Nov 25, 2026 | 14:15 PKT  
+--------------------------------
+--- [ ACTION MANIFEST ] --------
+[ ] Whole Organic Milk (2L)
+[ ] Free-range Eggs (1 Dozen)
+[ ] Arabica Roast Coffee Beans
+[ ] Thermal Receipt Rolls (58mm)
+[ ] Multivitamin & Electrolytes
+--------------------------------
+       PRIORITY DISPATCH        
 ================================`
     };
 
@@ -1113,8 +1139,8 @@ Time: 18:30 PKT
       await new Promise(r => setTimeout(r, 2200));
 
       // 4. WhatsApp Grocery Print
-      appendChat("Tour: Sending WhatsApp quick note...", false);
-      await sendPreset("Print grocery list: 1. Milk 2. Free-range Eggs 3. Coffee beans");
+      appendChat("Tour: Dispatching Executive Manifest via WhatsApp...", false);
+      await sendPreset("Print executive manifest: Whole Organic Milk, Free-range Eggs, Arabica Coffee Beans, Thermal Paper Rolls");
       await new Promise(r => setTimeout(r, 2200));
 
       // 5. Radar Evening Check-in
