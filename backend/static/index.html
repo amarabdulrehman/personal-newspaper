@@ -819,8 +819,9 @@ Islamabad: 21.4°C, Wind 7.8 km/h
   </main>
 
   <script>
-    const API_KEY = "esp32_local_secret_99";
+    const API_KEY = "__PRINTER_API_KEY__"; // injected by the server when DEMO_ENABLED=true
     let pollCountdown = 5;
+    let lastSeenPrintId = 0;
 
     // Preset receipt templates for immediate preview
     const PRESETS = {
@@ -1087,17 +1088,17 @@ Time Log: 18:30 PKT
       await checkNextPrint();
     }
 
-    // ESP32 Polling Simulator
+    // Preview simulator — reads the newest receipt WITHOUT dequeuing it,
+    // so the real ESP32 printer still gets every receipt.
     async function checkNextPrint() {
       try {
-        const res = await fetch("/api/next-print", {
-          headers: { "X-API-Key": API_KEY }
-        });
-        if (res.status === 200) {
-          const text = await res.text();
-          if (text && text.trim().length > 0) {
-            appendPollLog(`[ESP32] Dequeued receipt (${text.length} chars) -> Printing over Serial2`);
-            printReceipt(text);
+        const res = await fetch(`/api/demo/latest?after=${lastSeenPrintId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.text && data.id > lastSeenPrintId) {
+            lastSeenPrintId = data.id;
+            appendPollLog(`[PREVIEW] Receipt #${data.id} (${data.text.length} chars)`);
+            printReceipt(data.text);
           }
         }
       } catch (e) {

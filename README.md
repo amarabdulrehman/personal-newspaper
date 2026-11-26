@@ -1,149 +1,114 @@
-# 📰 WhatsApp-to-ESP32 Smart Thermal Receipt Printer
+# 📰 Personal Newspaper — WhatsApp → ESP32 Thermal Printer
 
-A complete physical productivity and notification system that prints daily morning digests, habit checklists, deep-work tickets, and task reminders on a 58mm thermal receipt printer via WhatsApp Cloud API, Gemini 2.5 Flash, APScheduler, and ESP32 with radar presence sensing.
-
----
-
-## 🏗 System Architecture
-
-```
-[ WhatsApp User ] ──(Text / Voice)──> [ Meta Cloud API v25.0 ]
-                                               │
-                                               ▼ Webhook
-                                    [ FastAPI Backend ]
-                                     ├── Gemini 2.5 Flash (Pydantic Schema)
-                                     ├── SQLite (printer.db + jobs.db)
-                                     └── APScheduler (Asia/Karachi)
-                                               │
-                                               ▼ Polling / Triggers
-[ ESP32 DevKit ] ◄──(Wi-Fi / HTTP)─────────────┘
-  ├── QR204 58mm Thermal Printer (Serial2: GPIO 16/17)
-  └── HLK-LD2410B mmWave Radar Presence Sensor (GPIO 27)
-```
-
----
-
-## 📂 Project Structure
+Every morning an ESP32 prints a personal newspaper on a 58mm thermal receipt
+printer: weather, daily habits, today's tasks and anything overdue. During the
+day you control it from WhatsApp — text or voice notes — and Gemini turns your
+message into tasks, habits or printouts.
 
 ```
-personal-newspaper/
-├── backend/
-│   ├── main.py              # FastAPI app, Gemini classifier, DB, Scheduler, API endpoints
-│   ├── requirements.txt     # Python dependencies
-│   └── .env.example         # Template for environment secrets
-├── firmware/
-│   └── esp32_printer.ino    # ESP32 Arduino sketch for printer control & presence sensing
-├── .gitignore
-└── README.md
+[ Your WhatsApp ] ──text / voice──> [ Meta Cloud API ]
+                                           │ webhook (signed)
+                                           ▼
+                                 [ FastAPI backend ]
+                                  ├── Gemini (structured JSON)
+                                  ├── SQLite (printer.db, jobs.db)
+                                  └── APScheduler (Asia/Karachi)
+                                           ▲
+                    polls every 5 s, acks  │
+[ ESP32 ] ─────────────────────────────────┘
+  ├── QR204 58mm printer (Serial2, GPIO 16/17)
+  └── LD2410B presence sensor (GPIO 27, optional)
 ```
 
----
+## What you can send on WhatsApp
 
-## 🚀 Features
+| You say | What happens |
+|---|---|
+| "Add a habit: read 10 pages" | Daily habit, printed every morning |
+| "Submit assignment on Friday" | Dated task, appears on that day's paper (and as overdue after) |
+| "Done with the assignment" | Task marked complete |
+| "Stop the reading habit" | Habit removed |
+| "Print: milk, eggs, bread" | Prints a checklist right now |
+| "Remind me to call Ammi at 8pm" | Prints at 20:00 PKT |
+| "Print my morning paper" | Re-prints today's paper now |
+| "What's on my list?" | WhatsApp reply with habits and open tasks |
 
-### 1. `/backend` (Python FastAPI + SQLite + Gemini + APScheduler)
-- **32-Character Thermal Layout**: Formats every receipt with dividers (`=`, `-`), centered uppercase headers, timestamps, and `[ ] ` checkboxes strictly wrapped to 32 columns.
-- **WhatsApp Cloud API Integration**:
-  - `GET /webhook/whatsapp`: Meta webhook handshake verification.
-  - `POST /webhook/whatsapp`: Receives text messages and audio voice notes from the authorized sender (`ALLOWED_PHONE_NUMBER`).
-  - Downloads voice notes directly from Meta Graph API (`v25.0`) and sends raw audio inline to Gemini for transcription + classification.
-- **Gemini 2.5 Flash Structured Classifier**:
-  - Injects current `Asia/Karachi` date, day of the week, and local time into the system prompt.
-  - Returns structured `GeminiDecision` JSON covering 5 actions:
-    1. `add_daily`: Saves recurring daily habits to `habits` table.
-    2. `add_dated`: Saves dated tasks to `dated_tasks` table.
-    3. `print_now`: Immediately formats and queues a custom receipt in `print_queue`.
-    4. `schedule_print`: Parses relative/absolute natural language times (e.g. *"at 7:00 PM"*, *"in 45 mins"*) into PKT ISO timestamps and registers an APScheduler job.
-    5. `list_tasks`: Formats active habits and pending tasks into a WhatsApp reply.
-- **Automated Morning Newspaper (07:00 AM PKT Daily Cron)**:
-  - Fetches Islamabad live weather from Open-Meteo.
-  - Pulls daily habits and today's dated tasks.
-  - Formats and enqueues the "MORNING EDITION" receipt into `print_queue`.
-- **Hardware Triggers (`X-API-Key: PRINTER_API_KEY`)**:
-  - `POST /api/trigger/nfc/desk`: 45-minute deep work sprint ticket.
-  - `POST /api/trigger/nfc/door`: Pocket check checklist (Keys, Wallet, University ID, Laptop & Charger).
-  - `POST /api/trigger/nfc/bedside`: Tomorrow's dated tasks preview.
-  - `POST /api/trigger/presence`: Evening check-in (16:00–23:00 PKT window, 4-hour cooldown).
-  - `GET /api/next-print`: Dequeues the oldest unprinted receipt (FIFO) and returns plaintext.
+## Morning edition (default 07:00 PKT)
 
-### 2. `/firmware` (ESP32 DevKit V1)
-- **Wi-Fi Connectivity**: Auto-connect with reconnection loop and timeout recovery.
-- **Thermal Printer Interface**:
-  - Drives a QR204 58mm TTL thermal printer over `Serial2` (`RX=GPIO16`, `TX=GPIO17`).
-  - Default baud rate: `9600` (easily changed to `19200` depending on printer self-test output).
-  - Appends 3 newlines (`\n\n\n`) after every receipt for clean tearing.
-- **Presence Detection**:
-  - Monitors HLK-LD2410B sensor `OUT` pin on `GPIO 27` (`INPUT`).
-  - 30-second local debounce prevents trigger spamming.
-  - Dispatches `POST /api/trigger/presence` to the backend when motion is detected.
+- Weather for your city: current, high/low, chance of rain (Open-Meteo, no key)
+- Daily habits as checkboxes
+- Tasks due today, plus an **OVERDUE** section for unfinished older tasks
 
----
+If the server is off at 07:00, the paper prints as soon as it comes back
+(within 6 hours).
 
-## 🛠 Quick Start
+## Reliability & security
 
-### 1. Backend Setup
+- **No lost receipts** — the ESP32 acknowledges each print (`POST /api/ack/{id}`);
+  unacknowledged receipts are re-sent (up to 3 times).
+- **No duplicate prints** — WhatsApp message ids are de-duplicated and the
+  webhook replies to Meta immediately.
+- **Signed webhooks** — set `WHATSAPP_APP_SECRET` so only Meta can post to
+  `/webhook/whatsapp`; only `ALLOWED_PHONE_NUMBER` is obeyed.
+- **ASCII-safe output** — characters the printer can't render are converted or dropped.
+- The browser simulator (`/` and `/api/demo/*`) is off unless `DEMO_ENABLED=true`.
+  Keep it off when the server is exposed to the internet.
+
+## Setup
+
+### 1. Backend
 
 ```bash
 cd backend
-
-# Create virtual environment (optional but recommended)
 python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-
-# Install dependencies
+.\venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-
-# Configure environment variables
-cp .env.example .env
+cp .env.example .env             # then fill it in
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Edit `.env` with your credentials:
-```ini
-WHATSAPP_VERIFY_TOKEN=printer_secret_2026
-WHATSAPP_ACCESS_TOKEN=your_meta_system_user_token
-WHATSAPP_PHONE_NUMBER_ID=1428007273647455
-ALLOWED_PHONE_NUMBER=923315355121
-GEMINI_API_KEY=your_gemini_api_key
-PRINTER_API_KEY=esp32_local_secret_99
-```
+The server must be running at the morning-paper time and reachable by Meta
+(public HTTPS URL, e.g. Cloudflare Tunnel or ngrok) and by the ESP32.
+Check `GET /health` to see when the next paper is scheduled.
 
-Run the backend server:
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
+In the Meta App Dashboard set the webhook URL to
+`https://<your-domain>/webhook/whatsapp`, the verify token to
+`WHATSAPP_VERIFY_TOKEN`, and subscribe to **messages**. Use a permanent System
+User access token; the temporary one expires after 24 hours.
 
-Expose to public internet for WhatsApp Webhook (e.g. using ngrok or Cloudflare Tunnel):
-```bash
-ngrok http 8000
-```
-Then set your Webhook URL in Meta App Dashboard: `https://<your-ngrok-domain>/webhook/whatsapp`.
+To try it in a browser on your own machine, set `DEMO_ENABLED=true` and open
+`http://localhost:8000/`.
 
----
+### 2. ESP32 firmware
 
-### 2. Firmware Flashing (ESP32)
-
-1. Open `firmware/esp32_printer.ino` in the Arduino IDE.
-2. Select **ESP32 Dev Module** from the Boards menu.
-3. Update the credentials at the top of the file:
-   ```cpp
-   const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-   const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-   const char* SERVER_URL    = "http://<YOUR_BACKEND_IP>:8000";
-   const char* PRINTER_API_KEY = "esp32_local_secret_99";
-   ```
+1. Open `firmware/esp32_printer.ino` in the Arduino IDE (board: **ESP32 Dev Module**).
+2. Set `WIFI_SSID`, `WIFI_PASSWORD`, `SERVER_URL` and `PRINTER_API_KEY` (same as `.env`).
+3. Set `PRESENCE_ENABLED false` if you have no LD2410B.
 4. Wiring:
-   | Component | ESP32 Pin | Note |
+
+   | Component | ESP32 | Note |
    |---|---|---|
-   | Thermal Printer RX | GPIO 17 (TX2) | ESP32 transmits to printer |
-   | Thermal Printer TX | GPIO 16 (RX2) | ESP32 receives from printer |
-   | Thermal Printer GND | GND | Common ground |
-   | LD2410B OUT | GPIO 27 | Presence digital input |
-   | LD2410B VCC/GND | 5V / GND | Sensor power |
-5. Click **Upload**.
+   | Printer RX | GPIO 17 (TX2) | ESP32 → printer |
+   | Printer TX | GPIO 16 (RX2) | printer → ESP32 |
+   | Printer GND | GND | common ground |
+   | Printer VIN | — | own 5–9 V ≥2 A supply, **not** the ESP32 |
+   | LD2410B OUT | GPIO 27 | optional |
+   | LD2410B VCC/GND | 5V / GND | optional |
 
----
+5. Upload. On power-on it prints `PRINTER ONLINE & READY` with its IP.
 
-## 📜 License
+If prints come out garbled, check the baud rate on the printer's self-test page
+(hold feed while powering on) and/or raise `LINE_DELAY_MS`.
 
-MIT License. Feel free to customize and extend for your own personal newspaper and thermal printing workflows!
+### Other triggers (need `X-API-Key`)
+
+- `POST /api/trigger/nfc/desk` — 45-minute deep-work ticket
+- `POST /api/trigger/nfc/door` — leaving-home checklist
+- `POST /api/trigger/nfc/bedside` — tomorrow's tasks
+- `POST /api/trigger/presence` — evening check-in (16:00–23:00, 4 h cooldown)
+
+The NFC endpoints can be called from phone NFC-tag automations (iOS Shortcuts / Android Tasker).
+
+## License
+
+MIT

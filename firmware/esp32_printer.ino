@@ -8,229 +8,231 @@
  *        RX = GPIO 16   (ESP32 receives FROM printer — rarely used)
  *        TX = GPIO 17   (ESP32 sends TO printer)
  *        Baud: 9600     (see NOTE below to switch to 19200)
- *    - HLK-LD2410B Presence Sensor
- *        OUT pin → GPIO 27 (INPUT, HIGH = presence detected)
- *        VCC → 3.3 V or 5 V (check module spec)
- *        GND → GND
+ *        Power the printer from its own 5-9 V supply (>= 2 A),
+ *        NOT from the ESP32 — and connect the grounds together.
+ *    - HLK-LD2410B Presence Sensor (optional)
+ *        OUT pin -> GPIO 27 (HIGH = presence detected)
  *
  *  Behaviour:
  *    1. Connects to Wi-Fi.
  *    2. Polls GET /api/next-print every 5 s with X-API-Key header.
- *       If a non-empty body is returned (HTTP 200), sends the text
- *       to the thermal printer over Serial2 followed by 3 newlines
- *       for clean paper tearing.
- *    3. Monitors GPIO 27 for the LD2410B presence sensor.
- *       When HIGH (with 30 s local debounce), POSTs to
- *       /api/trigger/presence with X-API-Key header.
+ *       When a receipt arrives it resets the printer (ESC @), sends the
+ *       text line-by-line (paced so the printer's small buffer never
+ *       overflows), feeds paper, then POSTs /api/ack/{id}. The server
+ *       re-sends anything that isn't acknowledged, so a Wi-Fi drop
+ *       never loses a receipt.
+ *    3. On a rising edge of GPIO 27 (30 s debounce) POSTs
+ *       /api/trigger/presence.
  * ============================================================
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <esp_system.h>
 
 // =============================================================
 //  USER CONFIGURATION — edit these before uploading
 // =============================================================
+const char* WIFI_SSID       = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD   = "YOUR_WIFI_PASSWORD";
 
-// Wi-Fi credentials
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+// Backend URL, no trailing slash. http:// (same network) or https:// (tunnel/cloud).
+const char* SERVER_URL      = "http://192.168.1.100:8000";
 
-// Backend server URL (no trailing slash)
-// Examples:
-//   Local network:  "http://192.168.1.100:8000"
-//   Ngrok tunnel:   "https://xxxx-xx-xx.ngrok-free.app"
-const char* SERVER_URL    = "http://192.168.1.100:8000";
+// Must match PRINTER_API_KEY in backend/.env
+const char* PRINTER_API_KEY = "CHANGE_ME";
 
-// Must match PRINTER_API_KEY in backend .env
-const char* PRINTER_API_KEY = "esp32_local_secret_99";
-
-// =============================================================
-//  PRINTER SERIAL CONFIG
-// =============================================================
-// NOTE: The QR204 printer ships at either 9600 or 19200 baud.
-//       Run a printer self-test (hold the feed button while
-//       powering on) — it prints its baud rate on the test page.
-//       If it says 19200, change the value below to 19200.
-#define PRINTER_BAUD 9600
-
-#define PRINTER_RX 16   // ESP32 GPIO 16 — connected to printer TX
-#define PRINTER_TX 17   // ESP32 GPIO 17 — connected to printer RX
+// Set to false if you have no LD2410B sensor wired (avoids false triggers
+// from a floating pin).
+#define PRESENCE_ENABLED true
 
 // =============================================================
-//  PRESENCE SENSOR CONFIG
+//  PRINTER CONFIG
+// =============================================================
+// NOTE: The QR204 ships at 9600 or 19200 baud. Hold the feed button while
+//       powering on to print a self-test page that shows the baud rate.
+#define PRINTER_BAUD     9600
+#define PRINTER_RX       16
+#define PRINTER_TX       17
+#define LINE_DELAY_MS    40     // pause after each line; raise if prints garble
+#define FEED_LINES       4      // blank lines after a receipt for tearing
+
+// =============================================================
+//  OTHER CONFIG
 // =============================================================
 #define PRESENCE_PIN          27
-#define PRESENCE_DEBOUNCE_MS  30000   // 30 seconds
+#define PRESENCE_DEBOUNCE_MS  30000
+#define POLL_INTERVAL_MS      5000
+
+unsigned long lastPollTime        = 0;
+unsigned long lastPresenceTrigger = 0;
+bool          lastPresenceState   = false;
 
 // =============================================================
-//  POLLING INTERVAL
+//  HTTP helper — works for both http:// and https:// SERVER_URL
 // =============================================================
-#define POLL_INTERVAL_MS      5000    // 5 seconds
+WiFiClient       plainClient;
+WiFiClientSecure secureClient;
 
-// =============================================================
-//  GLOBAL STATE
-// =============================================================
-unsigned long lastPollTime         = 0;
-unsigned long lastPresenceTrigger  = 0;
-bool          lastPresenceState    = false;
-
-// =============================================================
-//  SETUP
-// =============================================================
-void setup() {
-  // Debug serial (USB)
-  Serial.begin(115200);
-  Serial.println();
-  Serial.println("=================================");
-  Serial.println(" ESP32 Thermal Printer Starting");
-  Serial.println("=================================");
-
-  // Printer serial
-  Serial2.begin(PRINTER_BAUD, SERIAL_8N1, PRINTER_RX, PRINTER_TX);
-  Serial.printf("Printer serial on TX=%d RX=%d @ %d baud\n",
-                 PRINTER_TX, PRINTER_RX, PRINTER_BAUD);
-
-  // Presence sensor pin
-  pinMode(PRESENCE_PIN, INPUT);
-
-  // Connect to Wi-Fi
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("Connecting to Wi-Fi \"%s\"", WIFI_SSID);
-
-  unsigned long wifiStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    if (millis() - wifiStart > 20000) {
-      Serial.println("\nWi-Fi connection timeout — restarting...");
-      ESP.restart();
-    }
+bool beginRequest(HTTPClient& http, const String& path) {
+  String url = String(SERVER_URL) + path;
+  bool ok;
+  if (url.startsWith("https://")) {
+    secureClient.setInsecure();  // home device: skip CA pinning
+    ok = http.begin(secureClient, url);
+  } else {
+    ok = http.begin(plainClient, url);
   }
-  Serial.println();
-  Serial.printf("Connected!  IP: %s\n", WiFi.localIP().toString().c_str());
-
-  // Print a startup receipt so you know the printer works
-  Serial2.println("================================");
-  Serial2.println("    PRINTER ONLINE & READY");
-  Serial2.println("================================");
-  Serial2.println("\n\n\n");
+  http.addHeader("X-API-Key", PRINTER_API_KEY);
+  http.setTimeout(15000);
+  return ok;
 }
 
 // =============================================================
-//  HELPER: Poll backend for next print job
+//  Printer helpers
 // =============================================================
-void pollPrintQueue() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[POLL] Wi-Fi disconnected — skipping");
-    return;
+void printerReset() {
+  Serial2.write(0x1B);  // ESC
+  Serial2.write('@');   // initialise printer (clears old formatting)
+  delay(50);
+}
+
+void printReceipt(const String& text) {
+  printerReset();
+  int start = 0;
+  while (start < (int)text.length()) {
+    int nl = text.indexOf('\n', start);
+    if (nl < 0) nl = text.length();
+    Serial2.print(text.substring(start, nl));
+    Serial2.print('\n');
+    Serial2.flush();          // wait until bytes have left the UART
+    delay(LINE_DELAY_MS);     // let the print head catch up
+    start = nl + 1;
   }
+  for (int i = 0; i < FEED_LINES; i++) {
+    Serial2.print('\n');
+    delay(LINE_DELAY_MS);
+  }
+  Serial2.flush();
+}
+
+// =============================================================
+//  Poll backend for the next receipt, print it, acknowledge it
+// =============================================================
+void ackPrint(const String& printId) {
+  HTTPClient http;
+  if (!beginRequest(http, "/api/ack/" + printId)) return;
+  int code = http.POST("");
+  Serial.printf("[ACK] #%s -> HTTP %d\n", printId.c_str(), code);
+  http.end();
+}
+
+void pollPrintQueue() {
+  if (WiFi.status() != WL_CONNECTED) return;
 
   HTTPClient http;
-  String url = String(SERVER_URL) + "/api/next-print";
-  http.begin(url);
-  http.addHeader("X-API-Key", PRINTER_API_KEY);
-  http.setTimeout(10000);
+  if (!beginRequest(http, "/api/next-print")) return;
+  const char* wanted[] = {"X-Print-Id"};
+  http.collectHeaders(wanted, 1);
 
-  int httpCode = http.GET();
-
-  if (httpCode == 200) {
+  int code = http.GET();
+  if (code == 200) {
     String body = http.getString();
+    String printId = http.header("X-Print-Id");
+    http.end();
 
     if (body.length() > 0) {
-      Serial.printf("[PRINT] Received %d bytes — sending to printer\n", body.length());
-
-      // Send receipt text to thermal printer
-      Serial2.print(body);
-
-      // Feed 3 blank lines for clean tearing
-      Serial2.print("\n\n\n");
-
-      Serial.println("[PRINT] Done.");
-    } else {
-      // Empty queue — nothing to print
-      // (silent, no spam)
+      Serial.printf("[PRINT] #%s, %d bytes\n", printId.c_str(), body.length());
+      printReceipt(body);
+      if (printId.length() > 0) ackPrint(printId);
     }
-  } else if (httpCode < 0) {
-    Serial.printf("[POLL] HTTP error: %s\n", http.errorToString(httpCode).c_str());
-  } else {
-    Serial.printf("[POLL] HTTP %d\n", httpCode);
-  }
-
-  http.end();
-}
-
-// =============================================================
-//  HELPER: Send presence trigger to backend
-// =============================================================
-void sendPresenceTrigger() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[PRESENCE] Wi-Fi disconnected — skipping");
     return;
   }
 
-  HTTPClient http;
-  String url = String(SERVER_URL) + "/api/trigger/presence";
-  http.begin(url);
-  http.addHeader("X-API-Key", PRINTER_API_KEY);
-  http.addHeader("Content-Type", "application/json");
-  http.setTimeout(10000);
-
-  int httpCode = http.POST("{}");
-
-  if (httpCode == 200) {
-    String resp = http.getString();
-    Serial.printf("[PRESENCE] Trigger sent — server replied: %s\n", resp.c_str());
+  if (code < 0) {
+    Serial.printf("[POLL] HTTP error: %s\n", http.errorToString(code).c_str());
   } else {
-    Serial.printf("[PRESENCE] HTTP %d\n", httpCode);
+    Serial.printf("[POLL] HTTP %d\n", code);
   }
-
   http.end();
 }
 
 // =============================================================
-//  MAIN LOOP
+//  Presence trigger
 // =============================================================
+void sendPresenceTrigger() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  if (!beginRequest(http, "/api/trigger/presence")) return;
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST("{}");
+  Serial.printf("[PRESENCE] HTTP %d %s\n", code, code == 200 ? http.getString().c_str() : "");
+  http.end();
+}
+
+// =============================================================
+//  Wi-Fi
+// =============================================================
+void ensureWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
+  Serial.println("[WIFI] Connecting...");
+  WiFi.disconnect();
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(250);
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("[WIFI] Connected, IP %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("[WIFI] Failed, will retry");
+  }
+}
+
+// =============================================================
+//  SETUP / LOOP
+// =============================================================
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n=== ESP32 Thermal Printer Starting ===");
+
+  Serial2.begin(PRINTER_BAUD, SERIAL_8N1, PRINTER_RX, PRINTER_TX);
+  pinMode(PRESENCE_PIN, INPUT_PULLDOWN);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  ensureWiFi();
+
+  // Only print the "online" slip after a real power-on, not on every
+  // watchdog/Wi-Fi reset, so a flaky network doesn't waste paper.
+  if (esp_reset_reason() == ESP_RST_POWERON) {
+    printReceipt(String("================================\n") +
+                 "     PRINTER ONLINE & READY\n" +
+                 (WiFi.status() == WL_CONNECTED ? "  IP " + WiFi.localIP().toString() : String("  WI-FI NOT CONNECTED")) + "\n" +
+                 "================================");
+  }
+}
+
 void loop() {
   unsigned long now = millis();
 
-  // --- 1. Poll print queue every POLL_INTERVAL_MS ----------------
+  ensureWiFi();
+
   if (now - lastPollTime >= POLL_INTERVAL_MS) {
     lastPollTime = now;
     pollPrintQueue();
   }
 
-  // --- 2. Monitor presence sensor --------------------------------
-  bool presenceDetected = digitalRead(PRESENCE_PIN) == HIGH;
-
-  if (presenceDetected && !lastPresenceState) {
-    // Rising edge — presence just detected
-    if (now - lastPresenceTrigger >= PRESENCE_DEBOUNCE_MS) {
-      Serial.println("[PRESENCE] Detected — sending trigger");
+  if (PRESENCE_ENABLED) {
+    bool present = digitalRead(PRESENCE_PIN) == HIGH;
+    if (present && !lastPresenceState && now - lastPresenceTrigger >= PRESENCE_DEBOUNCE_MS) {
+      Serial.println("[PRESENCE] Detected");
       sendPresenceTrigger();
       lastPresenceTrigger = now;
-    } else {
-      Serial.println("[PRESENCE] Detected — debounce active, skipping");
     }
-  }
-  lastPresenceState = presenceDetected;
-
-  // --- 3. Reconnect Wi-Fi if dropped -----------------------------
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WIFI] Connection lost — reconnecting...");
-    WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    unsigned long reconnectStart = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - reconnectStart < 10000) {
-      delay(500);
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("[WIFI] Reconnected!  IP: %s\n", WiFi.localIP().toString().c_str());
-    } else {
-      Serial.println("[WIFI] Reconnect failed — will retry next loop");
-    }
+    lastPresenceState = present;
   }
 
-  delay(100);  // Small yield to avoid busy-looping
+  delay(100);
 }
