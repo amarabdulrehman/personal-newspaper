@@ -127,6 +127,10 @@ command above (it only adds the new `device` table) and `npx wrangler deploy`.
    your city/coordinates, morning time, printer baud.
    `config.h` is git-ignored, so your keys stay off GitHub.
 3. Open `personal_newspaper.ino`, board **ESP32 Dev Module**, upload.
+   The sketch uses about 92% of the default 1.3 MB app space. If you add
+   features and get "Sketch too big", pick **Tools → Partition Scheme →
+   Huge APP (3MB No OTA/1MB SPIFFS)**. LittleFS keeps working, but switching
+   schemes erases the saved habits/tasks.
 4. On power-on it prints `NEWSPAPER ONLINE` with its IP address.
 
 Wiring:
