@@ -54,3 +54,11 @@ firmware/build/
 *.bin
 *.hex
 *.elf
+
+# Firmware secrets
+firmware/personal_newspaper/config.h
+
+# Cloudflare
+worker/.wrangler/
+worker/node_modules/
+worker/.dev.vars

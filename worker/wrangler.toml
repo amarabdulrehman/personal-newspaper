@@ -1,0 +1,12 @@
+name = "personal-newspaper-relay"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Every 15 minutes: WhatsApp alert if the printer stopped polling for 30+ min.
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "newspaper-inbox"
+database_id = "PASTE_ID_FROM_wrangler_d1_create"

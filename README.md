@@ -2,22 +2,29 @@
 
 Every morning an ESP32 prints a personal newspaper on a 58mm thermal receipt
 printer: weather, daily habits, today's tasks and anything overdue. During the
-day you control it from WhatsApp — text or voice notes — and Gemini turns your
+day you talk to it on WhatsApp, by text or voice note, and Gemini turns your
 message into tasks, habits or printouts.
 
+**The ESP32 is the server.** No PC has to stay on. The only cloud piece is a
+tiny free Cloudflare Worker that catches WhatsApp's webhook, because Meta can
+only deliver messages to a public HTTPS address and the ESP32 sits behind
+your home router.
+
 ```
-[ Your WhatsApp ] ──text / voice──> [ Meta Cloud API ]
-                                           │ webhook (signed)
-                                           ▼
-                                 [ FastAPI backend ]
-                                  ├── Gemini (structured JSON)
-                                  ├── SQLite (printer.db, jobs.db)
-                                  └── APScheduler (Asia/Karachi)
-                                           ▲
-                    polls every 5 s, acks  │
-[ ESP32 ] ─────────────────────────────────┘
-  ├── QR204 58mm printer (Serial2, GPIO 16/17)
-  └── LD2410B presence sensor (GPIO 27, optional)
+ Your WhatsApp ──> Meta ──webhook──> Cloudflare Worker (free)
+                                      │  checks signature, dedupes,
+                                      │  transcribes voice notes (Gemini)
+                                      ▼
+                                   D1 inbox
+                                      ▲  GET /inbox every 6 s
+                                      │  POST /reply  ──> back to WhatsApp
+ ┌────────────────────────────────────┴──────────────────┐
+ │ ESP32 DevKit V1 (home Wi-Fi)                          │
+ │  - Gemini decides what each message means             │
+ │  - habits / tasks / reminders stored in flash         │
+ │  - morning paper, reminders, NFC/presence triggers    │
+ │  - QR204 printer on Serial2, LD2410B on GPIO 27       │
+ └───────────────────────────────────────────────────────┘
 ```
 
 ## What you can send on WhatsApp
@@ -25,89 +32,148 @@ message into tasks, habits or printouts.
 | You say | What happens |
 |---|---|
 | "Add a habit: read 10 pages" | Daily habit, printed every morning |
-| "Submit assignment on Friday" | Dated task, appears on that day's paper (and as overdue after) |
-| "Done with the assignment" | Task marked complete |
+| "Submit assignment on Friday" | Task; shows on that day's paper, then as overdue |
+| "Done with the assignment" | Task removed |
 | "Stop the reading habit" | Habit removed |
-| "Print: milk, eggs, bread" | Prints a checklist right now |
-| "Remind me to call Ammi at 8pm" | Prints at 20:00 PKT |
-| "Print my morning paper" | Re-prints today's paper now |
-| "What's on my list?" | WhatsApp reply with habits and open tasks |
+| "Print: milk, eggs, bread" | Prints a checklist now |
+| "Remind me to call Ammi at 8pm" | Prints at 20:00 |
+| "Did gym today" | Habit streak +1; the paper shows `[ ] Gym (x12)` |
+| Voice note saying any of the above | Same as typing it |
+| `list` `todo` `paper` `streaks` `outages` `status` `help` | Instant shortcuts (work even if Gemini is down) |
 
-## Morning edition (default 07:00 PKT)
+## The morning edition
 
-- Weather for your city: current, high/low, chance of rain (Open-Meteo, no key)
-- Daily habits as checkboxes
-- Tasks due today, plus an **OVERDUE** section for unfinished older tasks
+Prints at 07:00 (configurable). After a power cut it prints as soon as the
+ESP32 is back, up to 6 hours late.
 
-If the server is off at 07:00, the paper prints as soon as it comes back
-(within 6 hours).
+```
+================================
+MORNING EDITION          <- double-size headline
+================================
+       AMAR ABDUL REHMAN         <- bold
+          DAILY BRIEF
+    FRI NOV 27, 2026 | 07:00
+--- [ WEATHER ] ----------------
+Islamabad: 11C Clear
+High 22C / Low 8C | Rain 0%
+--- [ PRAYER TIMES ] -----------
+6 Jumada al-Akhirah 1448 AH
+Fajr    05:32    Sunrise 06:58
+Dhuhr   11:59    Asr     14:42
+Maghrib 16:59    Isha    18:24
+--- [ POWER REPORT ] -----------
+~03:10 - 07:25  (4h15m)
+Total last 24h: 4h15m
+--- [ DAILY HABITS ] -----------
+[ ] Gym (x12)
+[ ] Read 10 pages (x4)
+--- [ TODAY'S TASKS ] ----------
+[ ] Submit DSP assignment
+--------------------------------
+          OWN THE DAY
+================================
+```
 
-## Reliability & security
-
-- **No lost receipts** — the ESP32 acknowledges each print (`POST /api/ack/{id}`);
-  unacknowledged receipts are re-sent (up to 3 times).
-- **No duplicate prints** — WhatsApp message ids are de-duplicated and the
-  webhook replies to Meta immediately.
-- **Signed webhooks** — set `WHATSAPP_APP_SECRET` so only Meta can post to
-  `/webhook/whatsapp`; only `ALLOWED_PHONE_NUMBER` is obeyed.
-- **ASCII-safe output** — characters the printer can't render are converted or dropped.
-- The browser simulator (`/` and `/api/demo/*`) is off unless `DEMO_ENABLED=true`.
-  Keep it off when the server is exposed to the internet.
+- **Prayer times + Hijri date** from api.aladhan.com (Karachi method, Hanafi Asr; configurable).
+- **Power report:** the ESP32 notices it was switched off by a power cut and
+  reports when and for how long. `outages` on WhatsApp gives this month's total.
+- **Habit streaks:** tell it what you did ("did gym", "read today"); streaks
+  reset if you skip a day. `streaks` shows current and best.
+- **Printer offline alert:** if the ESP32 hasn't checked in for 30 minutes, the
+  Worker sends you a WhatsApp message, and another when it's back. (WhatsApp
+  only allows free-form messages within 24 hours of your last message to the
+  bot, so this alert only arrives if you've messaged it in the last day.)
 
 ## Setup
 
-### 1. Backend
+You need: ESP32 DevKit V1, QR204 (or similar 58mm TTL) printer with its own
+5–9 V ≥ 2 A supply, a Meta WhatsApp Cloud API app, a Gemini API key, and a
+free Cloudflare account.
+
+### 1. Cloudflare Worker (the relay)
 
 ```bash
-cd backend
-python -m venv venv
-.\venv\Scripts\activate          # Windows
-pip install -r requirements.txt
-cp .env.example .env             # then fill it in
-uvicorn main:app --host 0.0.0.0 --port 8000
+cd worker
+npx wrangler login
+npx wrangler d1 create newspaper-inbox          # copy the database_id into wrangler.toml
+npx wrangler d1 execute newspaper-inbox --remote --file=schema.sql
+
+# secrets (each command asks for the value)
+npx wrangler secret put WHATSAPP_VERIFY_TOKEN     # any random string
+npx wrangler secret put WHATSAPP_ACCESS_TOKEN     # permanent System User token
+npx wrangler secret put WHATSAPP_APP_SECRET       # Meta App Settings > Basic
+npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID  # WhatsApp > API Setup
+npx wrangler secret put ALLOWED_PHONE_NUMBER      # your number, e.g. 92300xxxxxxx
+npx wrangler secret put GEMINI_API_KEY            # used to transcribe voice notes
+npx wrangler secret put DEVICE_API_KEY            # long random string, also goes in config.h
+
+npx wrangler deploy                               # prints https://personal-newspaper-relay.<you>.workers.dev
+npm test                                          # optional: offline tests of the relay
 ```
 
-The server must be running at the morning-paper time and reachable by Meta
-(public HTTPS URL, e.g. Cloudflare Tunnel or ngrok) and by the ESP32.
-Check `GET /health` to see when the next paper is scheduled.
+In the Meta App Dashboard → WhatsApp → Configuration, set the callback URL to
+`https://personal-newspaper-relay.<you>.workers.dev/webhook`, the verify token
+to `WHATSAPP_VERIFY_TOKEN`, and subscribe to **messages**.
 
-In the Meta App Dashboard set the webhook URL to
-`https://<your-domain>/webhook/whatsapp`, the verify token to
-`WHATSAPP_VERIFY_TOKEN`, and subscribe to **messages**. Use a permanent System
-User access token; the temporary one expires after 24 hours.
-
-To try it in a browser on your own machine, set `DEMO_ENABLED=true` and open
-`http://localhost:8000/`.
+If you deployed before the offline alert existed, re-run the `schema.sql`
+command above (it only adds the new `device` table) and `npx wrangler deploy`.
 
 ### 2. ESP32 firmware
 
-1. Open `firmware/esp32_printer.ino` in the Arduino IDE (board: **ESP32 Dev Module**).
-2. Set `WIFI_SSID`, `WIFI_PASSWORD`, `SERVER_URL` and `PRINTER_API_KEY` (same as `.env`).
-3. Set `PRESENCE_ENABLED false` if you have no LD2410B.
-4. Wiring:
+1. Arduino IDE → Boards Manager: install **esp32 by Espressif** (3.x).
+   Library Manager: install **ArduinoJson** (7.x).
+2. In `firmware/personal_newspaper/`, copy `config.example.h` to `config.h` and fill it in:
+   Wi-Fi, `RELAY_URL`, `DEVICE_API_KEY` (same as the Worker), `GEMINI_API_KEY`,
+   your city/coordinates, morning time, printer baud.
+   `config.h` is git-ignored, so your keys stay off GitHub.
+3. Open `personal_newspaper.ino`, board **ESP32 Dev Module**, upload.
+4. On power-on it prints `NEWSPAPER ONLINE` with its IP address.
 
-   | Component | ESP32 | Note |
-   |---|---|---|
-   | Printer RX | GPIO 17 (TX2) | ESP32 → printer |
-   | Printer TX | GPIO 16 (RX2) | printer → ESP32 |
-   | Printer GND | GND | common ground |
-   | Printer VIN | — | own 5–9 V ≥2 A supply, **not** the ESP32 |
-   | LD2410B OUT | GPIO 27 | optional |
-   | LD2410B VCC/GND | 5V / GND | optional |
+Wiring:
 
-5. Upload. On power-on it prints `PRINTER ONLINE & READY` with its IP.
+| Component | ESP32 | Note |
+|---|---|---|
+| Printer RX | GPIO 17 (TX2) | ESP32 → printer |
+| Printer TX | GPIO 16 (RX2) | printer → ESP32 |
+| Printer GND | GND | common ground with the printer supply |
+| Printer VIN | — | own 5–9 V ≥ 2 A supply, **not** the ESP32 |
+| LD2410B OUT | GPIO 27 | optional; set `PRESENCE_ENABLED true` |
+| Push button | GPIO 4 ↔ GND | optional; set `BUTTON_ENABLED true`. Short press = to-do slip, hold 1+ s = morning paper |
 
-If prints come out garbled, check the baud rate on the printer's self-test page
-(hold feed while powering on) and/or raise `LINE_DELAY_MS`.
+If headlines print as junk characters, your printer doesn't support the bold /
+double-size commands: set `PRINTER_STYLES false` in `config.h`.
 
-### Other triggers (need `X-API-Key`)
+If prints come out garbled, check the baud rate on the printer self-test page
+(hold the feed button while powering on) and/or raise `LINE_DELAY_MS`.
 
-- `POST /api/trigger/nfc/desk` — 45-minute deep-work ticket
-- `POST /api/trigger/nfc/door` — leaving-home checklist
-- `POST /api/trigger/nfc/bedside` — tomorrow's tasks
-- `POST /api/trigger/presence` — evening check-in (16:00–23:00, 4 h cooldown)
+### 3. Local triggers (optional)
 
-The NFC endpoints can be called from phone NFC-tag automations (iOS Shortcuts / Android Tasker).
+On your home Wi-Fi the ESP32 answers at `http://newspaper.local/` (or its IP):
+
+- `http://newspaper.local/` shows status (time, counts, last morning paper)
+- `http://newspaper.local/trigger?zone=desk&key=LOCAL_TRIGGER_KEY`
+  prints a ticket; zones are `desk`, `door`, `bedside`, `evening`, `today` and `morning`
+
+Point phone NFC-tag automations (iOS Shortcuts / Android Tasker) at these URLs.
+With the presence sensor enabled, an evening check-in prints when you get home
+(16:00–23:00, at most every 4 hours).
+
+## Limits and notes
+
+- **Slow first compile on Windows:** the first ESP32 build can take 30+ minutes
+  because antivirus scans thousands of header files; later builds reuse the
+  cache. If your `Documents\Arduino` folder is inside OneDrive, builds can stall
+  while scanning it. Setting OneDrive to "Always keep on this device" for that
+  folder helps.
+
+- Free tiers: the ESP32 polls every 6 s (~14,400 Worker requests/day; the free
+  limit is 100,000). D1 and Gemini Flash free tiers cover personal use.
+- Data (habits, tasks, reminders) lives in the ESP32's flash in `/data.json`
+  and survives reboots and power cuts. Re-flashing with "Erase all flash" wipes it.
+- The ESP32 skips TLS certificate checks (`setInsecure`) to save memory. That's
+  fine on a home network.
+- `legacy/` holds the earlier Python/FastAPI backend and its thin ESP32 client.
+  Use them if you'd rather host the brain on a PC or cloud server instead.
 
 ## License
 
